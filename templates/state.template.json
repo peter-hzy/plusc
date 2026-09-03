@@ -1,0 +1,14 @@
+{
+  "schema_version": "0.1",
+  "workspace": "",
+  "product_profile_version": "",
+  "voice_profile_version": "",
+  "target_markets": ["Australia", "New Zealand", "United States", "Canada"],
+  "priority_segments": ["travel_agency", "dmc", "tour_operator"],
+  "secondary_segments": ["corporate_travel", "mice", "event_planner"],
+  "batch_size": 20,
+  "default_touch_channels": ["email", "linkedin"],
+  "follow_up_default": "stop_after_first_no_reply",
+  "human_approval_required_for": ["send", "linkedin_action", "quote", "contract", "commitment"],
+  "last_reviewed": ""
+}
