@@ -1,0 +1,24 @@
+# 本地运行数据和凭据
+.env
+.env.*
+secrets/
+data/
+output/
+workspace/
+*.xlsx
+*.xls
+*.csv
+*.jsonl
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+

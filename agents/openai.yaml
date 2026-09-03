@@ -1,0 +1,5 @@
+interface:
+  display_name: "入境游 AI 获客"
+  short_description: "研究海外 B2B 客户并生成可审核的触达草稿"
+  default_prompt: "用入境游 AI 获客 Skill，先根据当前产品和目标市场研究一批合适的海外 B2B 客户，再输出有证据的名单、负责人和邮件/LinkedIn 草稿。"
+
