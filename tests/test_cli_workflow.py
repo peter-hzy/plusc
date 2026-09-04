@@ -289,7 +289,7 @@ class CliWorkflowTests(unittest.TestCase):
         self.assertEqual(audit_public_repo(project)["status"], "failed")
 
     def test_release_lock_excludes_build_caches(self):
-        from inbound_ai_acquisition.audit.release import build_lock
+        from inbound_ai_acquisition.audit.release import _portable_hash, build_lock
 
         project = self.root / "release-repo"
         (project / "src").mkdir(parents=True)
@@ -301,6 +301,11 @@ class CliWorkflowTests(unittest.TestCase):
         lock_path = project / "skills.lock.json"
         payload = build_lock(project, lock_path)
         self.assertEqual([row["path"] for row in payload["files"]], ["src/main.py"])
+        lf = project / "lf.txt"
+        crlf = project / "crlf.txt"
+        lf.write_bytes(b"one\ntwo\n")
+        crlf.write_bytes(b"one\r\ntwo\r\n")
+        self.assertEqual(_portable_hash(lf), _portable_hash(crlf))
 
     def test_skill_install_and_status_use_manifest_diff(self):
         base = self.root / "skills"

@@ -21,13 +21,22 @@ def _files(root: Path) -> list[Path]:
     )
 
 
+def _portable_hash(path: Path) -> str:
+    raw = path.read_bytes()
+    try:
+        normalized = raw.decode("utf-8").replace("\r\n", "\n").replace("\r", "\n").encode("utf-8")
+    except UnicodeDecodeError:
+        normalized = raw
+    return hashlib.sha256(normalized).hexdigest()
+
+
 def build_lock(root: Path, output: Path) -> dict[str, Any]:
     entries = []
     for path in _files(root):
         entries.append(
             {
                 "path": path.relative_to(root).as_posix(),
-                "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                "sha256": _portable_hash(path),
             }
         )
     payload = {"schema_version": 1, "file_count": len(entries), "files": entries}

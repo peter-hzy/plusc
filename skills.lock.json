@@ -1,10 +1,14 @@
 {
   "schema_version": 1,
-  "file_count": 68,
+  "file_count": 69,
   "files": [
     {
       "path": ".env.example",
       "sha256": "9d73dc38e7a7946afe135fda025fe91468e176216471b1f77940302ef288f497"
+    },
+    {
+      "path": ".gitattributes",
+      "sha256": "988a5f320547d48e4ebbb3d373d04c7bd5ffa8f1489b572379c4d8de293b7d83"
     },
     {
       "path": ".github/workflows/ci.yml",
@@ -192,7 +196,7 @@
     },
     {
       "path": "src/inbound_ai_acquisition/audit/release.py",
-      "sha256": "bacdc9cafdb0d3c7ab429d1f64b4cb08865e84fa6331db8beaa9135fa937f2f8"
+      "sha256": "98e32f8fb7b10a8f3b4d4a73b5301ac20fcebb17a341a23cfbee983c702dd848"
     },
     {
       "path": "src/inbound_ai_acquisition/cli.py",
@@ -272,7 +276,7 @@
     },
     {
       "path": "tests/test_cli_workflow.py",
-      "sha256": "4ea5fa5ca6bb4f0097964fd577decc272921dcd70707fe9d773931f33bf1d15b"
+      "sha256": "46e04655ad2a67acafdfdd42a26e7aa15f6dafae3c5618ffb1c94d29b638d5c9"
     }
   ]
 }
