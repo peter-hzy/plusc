@@ -7,6 +7,13 @@ import sys
 from pathlib import Path
 
 
+def configure_console() -> None:
+    """统一为 UTF-8，避免 Windows/CI 的默认代码页掩盖真实检查结果。"""
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="backslashreplace")
+
+
 def check(root: Path) -> list[tuple[str, list[str]]]:
     skill = (root / "SKILL.md").read_text(encoding="utf-8")
     refs = "\n".join(path.read_text(encoding="utf-8") for path in (root / "references").glob("*.md"))
@@ -40,6 +47,7 @@ def check(root: Path) -> list[tuple[str, list[str]]]:
 
 
 def main() -> int:
+    configure_console()
     root = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else Path.cwd()
     results = check(root)
     print("THREE-PASS CHECK")
@@ -52,4 +60,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

@@ -7,7 +7,6 @@ import re
 import sys
 from pathlib import Path
 
-
 REQUIRED_FILES = (
     "SKILL.md", "README.md", "ARCHITECTURE.md", "CHANGELOG.md", "LICENSE",
     "SECURITY.md", "CONTRIBUTING.md", "pyproject.toml", "agents/openai.yaml",
@@ -24,7 +23,15 @@ REFERENCES = (
 )
 
 
+def configure_console() -> None:
+    """统一为 UTF-8，避免 Windows/CI 的默认代码页掩盖真实检查结果。"""
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="backslashreplace")
+
+
 def main() -> int:
+    configure_console()
     root = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else Path.cwd()
     errors: list[str] = []
     for relative in REQUIRED_FILES:
@@ -67,4 +74,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

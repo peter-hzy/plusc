@@ -12,7 +12,7 @@
     },
     {
       "path": ".github/workflows/ci.yml",
-      "sha256": "a20eb3d2f5d4171378fe602bc39970f7e90e6b7f12f47a4e88d86d5259920334"
+      "sha256": "34897f36494c282751589170c831a92fa8fec2e4d25772757a162318e69ae586"
     },
     {
       "path": ".gitignore",
@@ -32,11 +32,11 @@
     },
     {
       "path": "CHANGELOG.md",
-      "sha256": "caa695c7dd64218897595e9bcf50dd11d8161cc7b6b6437e218165fe519c78a7"
+      "sha256": "429f5fdd4bdec861904e60a7b3fe7db62c212ef695b9f12cc00dda8f51926abe"
     },
     {
       "path": "CONTEXT.md",
-      "sha256": "ec1c0350a59716945274ad82c3defb3b0d61327c2b4e063bc4130164a65f5c83"
+      "sha256": "47d62f4bd48b0ef990e02d4649b0020551a8c5d9ad23c8b85088ec5cf8a895d6"
     },
     {
       "path": "CONTRIBUTING.md",
@@ -140,11 +140,11 @@
     },
     {
       "path": "scripts/three_pass_check.py",
-      "sha256": "32964398381effa1cedcc71513de1fdbde34ba1f4e15e6388208930b5fb99b8c"
+      "sha256": "be3fe5633df819ff51f7ac570a4a04eef7c29c8c37d8df85fde0b094befdeda2"
     },
     {
       "path": "scripts/validate_skill.py",
-      "sha256": "7ded8ef00a63f61abb72b18af8c3797deb02753c0ddb45d2dd629d9db434c6f3"
+      "sha256": "7c8bfd1c6eaaca2268a3be8894615e472fcf5a432802b3ef7c8f14eee97df4ab"
     },
     {
       "path": "SECURITY.md",
