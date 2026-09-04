@@ -32,11 +32,11 @@
     },
     {
       "path": "CHANGELOG.md",
-      "sha256": "429f5fdd4bdec861904e60a7b3fe7db62c212ef695b9f12cc00dda8f51926abe"
+      "sha256": "98a29d57d04076b8b821b6c845675d6932eec2989e11c0afaafcde54c608128f"
     },
     {
       "path": "CONTEXT.md",
-      "sha256": "551dd34d9305a483afe28bb6a0992e09737d3fe12866a42c0fd55c1aa50035b7"
+      "sha256": "c38cce327e3beca3cb3063a9514cf2244f445b0f8fdb79dcf069b3f1448fce7a"
     },
     {
       "path": "CONTRIBUTING.md",
@@ -92,7 +92,7 @@
     },
     {
       "path": "README.md",
-      "sha256": "5ef3163c53d71e5ef1816bd7657847bcf9ffb1cfc3c74f6fc746f2f5690226d1"
+      "sha256": "5569dfe00877e62cc6f05c081991eacab69034a46fb135150a5ccd0094868372"
     },
     {
       "path": "references/api-mcp-boundaries.md",
@@ -200,7 +200,7 @@
     },
     {
       "path": "src/inbound_ai_acquisition/cli.py",
-      "sha256": "4fe7a749b186238edab4cc3bddbcf9652518e35cadc20bcc768b96214ec7499f"
+      "sha256": "3ce64576c88655556d61be9b813d7eaae05edec517fb3bd514ab81ec637ec511"
     },
     {
       "path": "src/inbound_ai_acquisition/config.py",
@@ -276,7 +276,7 @@
     },
     {
       "path": "tests/test_cli_workflow.py",
-      "sha256": "46e04655ad2a67acafdfdd42a26e7aa15f6dafae3c5618ffb1c94d29b638d5c9"
+      "sha256": "1df9242e91a388f442bafa69dcc0cb59e5d4ae0ae73645d00fea1eeed7829cc7"
     }
   ]
 }

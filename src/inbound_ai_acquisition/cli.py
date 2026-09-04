@@ -44,6 +44,13 @@ from .storage.database import Database, canonical_hash, new_id, utc_now
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
+def configure_console() -> None:
+    """统一命令行输出编码，避免 Windows 默认代码页破坏中文 JSON。"""
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="backslashreplace")
+
+
 def emit(payload: Any) -> None:
     print(json.dumps(payload, ensure_ascii=False, indent=2, default=str))
 
@@ -244,16 +251,30 @@ def _context_validate(workspace: Workspace, db: Database) -> dict[str, Any]:
     required = ("config.toml", "product-profile.md", "voice-profile.md")
     missing = [name for name in required if not (workspace.root / name).exists()]
     placeholders = []
+    profile_gaps: dict[str, list[str]] = {}
+    required_profile_fields = {
+        "product-profile.md": ("版本：", "- 可接待目的地：", "- 可提供服务：", "- 语言："),
+        "voice-profile.md": ("版本：", "- 希望像谁在说话："),
+    }
     for name in ("product-profile.md", "voice-profile.md"):
         path = workspace.root / name
-        if path.exists() and (
-            "待填写" in path.read_text(encoding="utf-8") or "TODO" in path.read_text(encoding="utf-8")
-        ):
-            placeholders.append(name)
+        if path.exists():
+            content = path.read_text(encoding="utf-8")
+            if "待填写" in content or "TODO" in content:
+                placeholders.append(name)
+            lines = [line.strip() for line in content.splitlines()]
+            gaps = []
+            for label in required_profile_fields[name]:
+                matching = [line for line in lines if line.startswith(label)]
+                if not matching or not matching[0][len(label) :].strip():
+                    gaps.append(label.rstrip("："))
+            if gaps:
+                profile_gaps[name] = gaps
     return {
-        "status": "succeeded" if not missing and not placeholders else "needs_review",
+        "status": "succeeded" if not missing and not placeholders and not profile_gaps else "needs_review",
         "missing": missing,
         "placeholders": placeholders,
+        "profile_gaps": profile_gaps,
         "schema_version": db.schema_version(),
     }
 
@@ -549,6 +570,7 @@ def dispatch(args: argparse.Namespace) -> Any:
 
 
 def main(argv: list[str] | None = None) -> int:
+    configure_console()
     try:
         emit(dispatch(build_parser().parse_args(argv)))
         return 0

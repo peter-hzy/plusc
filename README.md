@@ -234,7 +234,7 @@ inbound-leads-data/
 inbound-leads context validate --workspace $Workspace
 ```
 
-产品资料不完整时不要急着批量写信，否则 AI 只能生成看起来完整、实际上无法兑现的话术。
+只有返回 `"status": "succeeded"` 才表示基础资料检查通过；如果返回 `needs_review`，请根据 `profile_gaps` 补齐必填内容。产品资料不完整时不要急着批量写信，否则 AI 只能生成看起来完整、实际上无法兑现的话术。
 
 ### 第二步：创建研究批次
 
@@ -486,7 +486,7 @@ GitHub Actions 会在以下四种组合中运行同一套检查：
 当前工程验证已经完成：
 
 - 全新目录克隆和安装通过；
-- 13 个自动化测试通过；
+- 15 个自动化测试通过；
 - Windows/Linux 跨平台 CI 通过；
 - Skill 结构、业务闭环和安全边界三遍检查通过；
 - 公开仓库敏感文件检查与发布锁检查通过。

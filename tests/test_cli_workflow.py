@@ -1,4 +1,7 @@
 import json
+import os
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -16,7 +19,7 @@ from inbound_ai_acquisition.application.services import (
     set_draft_status,
 )
 from inbound_ai_acquisition.audit.public_repo import audit_public_repo
-from inbound_ai_acquisition.cli import _skill_install, _skill_status
+from inbound_ai_acquisition.cli import _context_validate, _init_workspace, _skill_install, _skill_status
 from inbound_ai_acquisition.config import Workspace
 from inbound_ai_acquisition.errors import StateError, ValidationError
 from inbound_ai_acquisition.exporters.workbook import SHEETS, export_workbook
@@ -315,6 +318,55 @@ class CliWorkflowTests(unittest.TestCase):
         target_skill = base / "inbound-ai-acquisition" / "SKILL.md"
         target_skill.write_text(target_skill.read_text(encoding="utf-8") + "\nchanged\n", encoding="utf-8")
         self.assertFalse(_skill_status(str(base))["in_sync"])
+
+    def test_context_validation_rejects_unfilled_profiles(self):
+        root = self.root / "context-workspace"
+        _init_workspace(root)
+        workspace = Workspace(root)
+        db = Database(workspace.database)
+        unfilled = _context_validate(workspace, db)
+        self.assertEqual(unfilled["status"], "needs_review")
+        self.assertIn("product-profile.md", unfilled["profile_gaps"])
+        self.assertIn("voice-profile.md", unfilled["profile_gaps"])
+
+        (root / "product-profile.md").write_text(
+            "# 产品资料卡\n\n版本：1.0\n- 可接待目的地：北京、上海、西安\n"
+            "- 可提供服务：线路设计、交通、导游\n- 语言：中文、英文\n",
+            encoding="utf-8",
+        )
+        (root / "voice-profile.md").write_text(
+            "# 话术资料卡\n\n版本：1.0\n- 希望像谁在说话：熟悉中国地接的合作伙伴\n",
+            encoding="utf-8",
+        )
+        self.assertEqual(_context_validate(workspace, db)["status"], "succeeded")
+
+    def test_cli_emits_utf8_when_environment_requests_ascii(self):
+        root = self.root / "unicode-workspace"
+        _init_workspace(root)
+        environment = os.environ.copy()
+        environment["PYTHONIOENCODING"] = "ascii"
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "inbound_ai_acquisition.cli",
+                "run",
+                "create",
+                "--workspace",
+                str(root),
+                "--market",
+                "AU",
+                "--segments",
+                "travel_agency",
+                "--idempotency-key",
+                "unicode-output",
+            ],
+            capture_output=True,
+            check=False,
+            env=environment,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr.decode("utf-8", errors="replace"))
+        self.assertIn("导入或研究候选公司", result.stdout.decode("utf-8"))
 
 
 if __name__ == "__main__":
