@@ -1,0 +1,16 @@
+{
+  "message_id": "",
+  "company_id": "",
+  "contact_id": "",
+  "channel": "email_or_linkedin",
+  "contact_reason": "",
+  "personalization_evidence_id": "",
+  "personalization_fact": "",
+  "relevant_offer": "",
+  "unsupported_claims_to_avoid": [],
+  "single_cta": "",
+  "unknowns": [],
+  "fact_check_status": "needs_review",
+  "voice_check_status": "needs_review",
+  "human_review_status": "pending"
+}

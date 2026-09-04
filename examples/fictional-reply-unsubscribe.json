@@ -1,0 +1,13 @@
+{
+  "message_id": "fictional-message-001",
+  "contact_id": "ct_alice_morgan",
+  "channel": "email",
+  "received_at": "2026-09-03T00:00:00+00:00",
+  "source_reference": "fictional-thread-do-not-use-as-real-data",
+  "reply_category": "unsubscribe",
+  "confirmed_needs": "Requested no further contact.",
+  "unknown_needs": "",
+  "next_action": "Stop all channels and hand over to a human.",
+  "needs_human_takeover": true,
+  "do_not_contact": true
+}

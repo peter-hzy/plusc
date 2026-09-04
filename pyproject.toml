@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "inbound-ai-acquisition"
+version = "1.0.0"
+description = "Evidence-driven local workflow for inbound-tourism B2B acquisition"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "peter-hzy" }]
+dependencies = []
+
+[project.optional-dependencies]
+excel = ["openpyxl>=3.1,<4"]
+dev = ["openpyxl>=3.1,<4", "ruff>=0.12,<1"]
+
+[project.scripts]
+inbound-leads = "inbound_ai_acquisition.cli:main"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+exclude = ["scripts"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+ignore = ["E501"]

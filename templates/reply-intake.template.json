@@ -1,0 +1,13 @@
+{
+  "message_id": "external message id",
+  "contact_id": "ct_...",
+  "channel": "email",
+  "received_at": "YYYY-MM-DDTHH:MM:SS+00:00",
+  "source_reference": "人工可定位的邮件或 LinkedIn 会话引用",
+  "reply_category": "other",
+  "confirmed_needs": "只写回复中明确出现的需求",
+  "unknown_needs": "仍需询问的信息",
+  "next_action": "建议的人工下一步",
+  "needs_human_takeover": true,
+  "do_not_contact": false
+}

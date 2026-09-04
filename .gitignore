@@ -1,24 +1,37 @@
 # 本地运行数据和凭据
 .env
 .env.*
+!.env.example
 secrets/
 data/
 output/
+outputs/
 workspace/
 *.xlsx
 *.xls
 *.csv
+!examples/*.csv
+!templates/*.csv
 *.jsonl
 
 # Python
 __pycache__/
 *.py[cod]
 .pytest_cache/
+*.egg-info/
+.coverage
+build/
+dist/
 .venv/
 venv/
+
+# 发布检查临时文件
+.skills.lock.check.tmp
+
+# Codex bundled JavaScript dependencies
+node_modules/
 
 # OS / editor
 .DS_Store
 Thumbs.db
 .vscode/
-

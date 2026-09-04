@@ -1,0 +1,65 @@
+{
+  "run_id": "",
+  "market": [],
+  "client_types": [],
+  "product_scenario": "",
+  "target_count": 20,
+  "sources": [
+    {
+      "source_category": "company_website",
+      "source_role": "verification",
+      "target_signal": "公司主体、产品、目的地、团队和联系入口",
+      "query_or_entry_url": "",
+      "coverage": "",
+      "access_status": "not_searched",
+      "contribution": "not_measured"
+    },
+    {
+      "source_category": "tourism_association_directory",
+      "source_role": "discovery",
+      "target_signal": "目标市场中的旅行社、批发商或 DMC 候选",
+      "query_or_entry_url": "",
+      "coverage": "",
+      "access_status": "not_searched",
+      "contribution": "not_measured"
+    },
+    {
+      "source_category": "trade_show_exhibitor_directory",
+      "source_role": "discovery",
+      "target_signal": "团组、MICE、目的地产品或合作窗口",
+      "query_or_entry_url": "",
+      "coverage": "",
+      "access_status": "not_searched",
+      "contribution": "not_measured"
+    },
+    {
+      "source_category": "linkedin_public",
+      "source_role": "both",
+      "target_signal": "公司页、负责人姓名、当前公司与职责",
+      "query_or_entry_url": "",
+      "coverage": "",
+      "access_status": "not_searched",
+      "contribution": "not_measured"
+    },
+    {
+      "source_category": "search_engine",
+      "source_role": "discovery",
+      "target_signal": "候选公司、产品页和其他原始来源入口",
+      "query_or_entry_url": "",
+      "coverage": "",
+      "access_status": "not_searched",
+      "contribution": "not_measured"
+    },
+    {
+      "source_category": "public_business_signals",
+      "source_role": "discovery",
+      "target_signal": "新增线路、招聘、合作公告、活动或目的地内容",
+      "query_or_entry_url": "",
+      "coverage": "",
+      "access_status": "not_searched",
+      "contribution": "not_measured"
+    }
+  ],
+  "coverage_gaps": [],
+  "notes": "搜索摘要只负责发现；正式结论回到原始页面核验。"
+}

@@ -14,7 +14,8 @@ metadata:
 根据用户请求进入一个或多个模式，不要无意义地读取所有参考文件：
 
 - 初始化或更新产品资料：读取 `references/business-context.md`、`templates/product-profile.template.md`。
-- 找名单、研究公司、找负责人：读取 `references/research-protocol.md`、`references/data-contract.md`。
+- 找名单、研究公司：读取 `references/research-protocol.md`、`references/data-contract.md`。
+- 找负责人或核验 LinkedIn/邮箱身份：同时读取 `references/identity-matching.md`。
 - 生成邮件或 LinkedIn 草稿：读取 `references/outreach-protocol.md`、`references/safety-and-compliance.md`。
 - 处理回复、提取询盘、判断下一步：读取 `references/reply-retro-protocol.md`。
 - 讨论 API、MCP、浏览器或自动化：读取 `references/api-mcp-boundaries.md`、`references/safety-and-compliance.md`。
@@ -39,6 +40,7 @@ metadata:
 
 ## 触达硬边界
 
+- 系统不自动发送邮件、提交表单或操作 LinkedIn；发送、报价和承诺始终由人工完成。
 - 首轮默认邮件 + LinkedIn 同时准备；邮件正式清楚，LinkedIn 简短自然，不复制粘贴。
 - 首轮没有回复就先停止，不自动连续追发；若用户另行确认跟进策略，仍需逐条人工审核。
 - 退订、停止联系、投诉、明确拒绝或法律/平台风险信号，立即加入全局禁止联系并停止相关任务。
@@ -52,16 +54,21 @@ metadata:
 
 回复至少包含：原文或来源、回复类别、已确认需求、未知需求、下一步、是否需要人工接管、是否应停止联系。
 
-CSV/Excel 字段和状态定义以 `references/data-contract.md` 为准。没有证据的字段留空或写 `unknown`，不要用“看起来像”“应该是”伪装成事实。
+字段、状态和跨表约束以 `references/data-contract.md` 为准；正式数据写入仓库外工作区的 SQLite，Excel/JSON只用于导入或审阅。旧版多表JSON和单表CSV仅作兼容。没有证据的字段留空或写 `unknown`，不要用“看起来像”“应该是”伪装成事实。
 
-## 可用脚本
+## 本地工具
 
-脚本只做本地、可重复、低风险的整理和验证：
+正式运行优先使用统一 CLI。先运行 `inbound-leads doctor`；处理真实数据时始终传入仓库外的 `--workspace`：
 
-- `scripts/init_workspace.py`：创建不覆盖原文件的本地工作区。
-- `scripts/validate_skill.py`：检查 Skill 结构、引用和关键约束。
-- `scripts/validate_leads.py`：检查名单 CSV 的字段、重复、证据和禁止联系状态。
-- `scripts/three_pass_check.py`：执行结构、业务逻辑和安全边界三遍检查。
+- `inbound-leads init`、`context validate`：初始化并检查产品与语气资料。
+- `inbound-leads run create|status|close`：建立20—25家公司批次并查看进度。
+- `inbound-leads import companies|contacts|evidence|legacy`：导入结构化观察或迁移旧数据。
+- `inbound-leads claim propose|accept|hold|reject`：把证据、事实提议和人工决定分开。
+- `inbound-leads draft create|check|approve|mark-sent|stop`：执行草稿门禁；`mark-sent` 只记录人工发送。
+- `inbound-leads reply ingest`、`stop add|list|release`：回灌回复并执行停止联系规则。
+- `inbound-leads export workbook|json`：导出只读审阅快照。
+- `inbound-leads audit workspace|public-repo|release`：检查数据、隐私和发布状态。
 
-完成真实任务前先阅读相关 reference；完成后运行三遍检查。脚本不能替代人工审核。
+仓库中的 `scripts/` 是旧格式兼容和项目发布工具，不属于安装后 Skill 的运行依赖。不要在普通获客任务中绕过 CLI 直接组合旧脚本。
 
+完成真实任务前先阅读相关 reference；完成后运行三遍检查。CLI 和脚本都不能替代人工审核，也不能扩大用户授权。
