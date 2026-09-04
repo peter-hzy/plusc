@@ -36,7 +36,7 @@
     },
     {
       "path": "CONTEXT.md",
-      "sha256": "47d62f4bd48b0ef990e02d4649b0020551a8c5d9ad23c8b85088ec5cf8a895d6"
+      "sha256": "551dd34d9305a483afe28bb6a0992e09737d3fe12866a42c0fd55c1aa50035b7"
     },
     {
       "path": "CONTRIBUTING.md",
@@ -92,7 +92,7 @@
     },
     {
       "path": "README.md",
-      "sha256": "d803967e9e35e58736fb16e3403bd5b52f3c8cfa758a3ef3cc1172adbde5f757"
+      "sha256": "5ef3163c53d71e5ef1816bd7657847bcf9ffb1cfc3c74f6fc746f2f5690226d1"
     },
     {
       "path": "references/api-mcp-boundaries.md",
