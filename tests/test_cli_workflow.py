@@ -130,6 +130,23 @@ class CliWorkflowTests(unittest.TestCase):
         self.assertEqual(second["status"], "already_applied")
         self.assertEqual(second["run_id"], self.run)
 
+    def test_run_captures_product_and_voice_versions(self):
+        result = create_run(
+            self.db,
+            markets=["AU"],
+            segments=["travel_agency"],
+            target=20,
+            request_id="req-versioned-run",
+            idempotency_key="idem-versioned-run",
+            product_version="product-1.2",
+            voice_version="voice-2.0",
+        )
+        row = self.db.query(
+            "SELECT product_version,voice_version FROM runs WHERE run_id=?", (result["run_id"],)
+        )[0]
+        self.assertEqual(row["product_version"], "product-1.2")
+        self.assertEqual(row["voice_version"], "voice-2.0")
+
     def test_unknown_import_field_rolls_back_entire_file(self):
         source = self.write_json(
             "bad.json",
@@ -350,23 +367,17 @@ class CliWorkflowTests(unittest.TestCase):
                 sys.executable,
                 "-m",
                 "inbound_ai_acquisition.cli",
-                "run",
-                "create",
+                "context",
+                "validate",
                 "--workspace",
                 str(root),
-                "--market",
-                "AU",
-                "--segments",
-                "travel_agency",
-                "--idempotency-key",
-                "unicode-output",
             ],
             capture_output=True,
             check=False,
             env=environment,
         )
         self.assertEqual(result.returncode, 0, result.stderr.decode("utf-8", errors="replace"))
-        self.assertIn("导入或研究候选公司", result.stdout.decode("utf-8"))
+        self.assertIn("可接待目的地", result.stdout.decode("utf-8"))
 
 
 if __name__ == "__main__":

@@ -279,6 +279,13 @@ def _context_validate(workspace: Workspace, db: Database) -> dict[str, Any]:
     }
 
 
+def _profile_version(path: Path) -> str:
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if line.strip().startswith("版本："):
+            return line.strip().removeprefix("版本：").strip()
+    return ""
+
+
 def _init_workspace(path: Path) -> dict[str, Any]:
     workspace = Workspace(path.resolve())
     created = workspace.ensure_layout()
@@ -471,6 +478,9 @@ def dispatch(args: argparse.Namespace) -> Any:
         return _context_validate(workspace, db)
     if command == "run":
         if args.run_command == "create":
+            context_status = _context_validate(workspace, db)
+            if context_status["status"] != "succeeded":
+                raise ValidationError(f"产品或话术资料尚未完成：{context_status['profile_gaps']}")
             return create_run(
                 db,
                 markets=[x.strip() for x in args.market.split(",") if x.strip()],
@@ -478,6 +488,8 @@ def dispatch(args: argparse.Namespace) -> Any:
                 target=args.target,
                 request_id=rid,
                 idempotency_key=args.idempotency_key or rid,
+                product_version=_profile_version(workspace.root / "product-profile.md"),
+                voice_version=_profile_version(workspace.root / "voice-profile.md"),
             )
         if args.run_command == "status":
             return run_status(db, args.run)

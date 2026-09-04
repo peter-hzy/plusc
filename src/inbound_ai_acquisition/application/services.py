@@ -62,9 +62,23 @@ def root_domain(value: str) -> str:
 
 
 def create_run(
-    db: Database, *, markets: list[str], segments: list[str], target: int, request_id: str, idempotency_key: str
+    db: Database,
+    *,
+    markets: list[str],
+    segments: list[str],
+    target: int,
+    request_id: str,
+    idempotency_key: str,
+    product_version: str = "",
+    voice_version: str = "",
 ) -> dict[str, Any]:
-    payload = {"markets": markets, "segments": segments, "target": target}
+    payload = {
+        "markets": markets,
+        "segments": segments,
+        "target": target,
+        "product_version": product_version,
+        "voice_version": voice_version,
+    }
     if not markets or not segments or target < 1:
         raise ValidationError("市场、客户类型和目标数量不能为空")
     with db.transaction() as connection:
@@ -73,8 +87,19 @@ def create_run(
             return prior
         run_id = new_id("run")
         connection.execute(
-            "INSERT INTO runs(run_id,markets,segments,target_count,status,next_action,created_at) VALUES (?,?,?,?,?,?,?)",
-            (run_id, ",".join(markets), ",".join(segments), target, "created", "导入或研究候选公司", utc_now()),
+            "INSERT INTO runs(run_id,markets,segments,target_count,status,next_action,product_version,voice_version,created_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?)",
+            (
+                run_id,
+                ",".join(markets),
+                ",".join(segments),
+                target,
+                "created",
+                "导入或研究候选公司",
+                product_version,
+                voice_version,
+                utc_now(),
+            ),
         )
         result = _result(request_id, run_id=run_id, changed=1, next_action="导入或研究候选公司")
         db.append_event(connection, event_type="run.created", request_id=request_id, run_id=run_id, payload=payload)
