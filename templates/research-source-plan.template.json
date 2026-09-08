@@ -4,6 +4,7 @@
   "client_types": [],
   "product_scenario": "",
   "target_count": 20,
+  "recommended_candidate_pool": 60,
   "sources": [
     {
       "source_category": "company_website",
@@ -61,5 +62,5 @@
     }
   ],
   "coverage_gaps": [],
-  "notes": "搜索摘要只负责发现；正式结论回到原始页面核验。"
+  "notes": "搜索摘要只负责发现；正式结论回到原始页面核验。客户类型没有固定比例，覆盖缺口只触发补搜，不能用弱公司凑数。"
 }

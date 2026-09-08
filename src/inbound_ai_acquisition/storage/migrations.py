@@ -1,6 +1,6 @@
 """内置迁移。"""
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 3
 
 INITIAL_SQL = r"""
 PRAGMA foreign_keys = ON;
@@ -32,6 +32,9 @@ CREATE TABLE IF NOT EXISTS runs (
   markets TEXT NOT NULL,
   segments TEXT NOT NULL,
   target_count INTEGER NOT NULL CHECK (target_count > 0),
+  candidate_pool_multiplier REAL NOT NULL DEFAULT 3.0 CHECK (candidate_pool_multiplier >= 1.0),
+  min_source_categories INTEGER NOT NULL DEFAULT 3 CHECK (min_source_categories >= 1),
+  production_min_target INTEGER NOT NULL DEFAULT 20 CHECK (production_min_target >= 1),
   status TEXT NOT NULL,
   next_action TEXT NOT NULL DEFAULT '',
   product_version TEXT NOT NULL DEFAULT '',
@@ -56,7 +59,7 @@ CREATE TABLE IF NOT EXISTS companies (
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
-CREATE UNIQUE INDEX IF NOT EXISTS uq_company_domain ON companies(root_domain) WHERE root_domain <> '';
+CREATE UNIQUE INDEX IF NOT EXISTS uq_company_run_domain ON companies(run_id, root_domain) WHERE root_domain <> '';
 CREATE TABLE IF NOT EXISTS contacts (
   contact_id TEXT PRIMARY KEY,
   company_id TEXT NOT NULL REFERENCES companies(company_id),
@@ -84,7 +87,8 @@ CREATE TABLE IF NOT EXISTS entity_keys (
   source TEXT NOT NULL DEFAULT '',
   observed_at TEXT NOT NULL
 );
-CREATE UNIQUE INDEX IF NOT EXISTS uq_active_entity_key ON entity_keys(key_type, normalized_value) WHERE status='active';
+CREATE UNIQUE INDEX IF NOT EXISTS uq_active_entity_key ON entity_keys(entity_type,entity_id,key_type,normalized_value)
+WHERE status='active';
 CREATE TABLE IF NOT EXISTS source_runs (
   source_run_id TEXT PRIMARY KEY,
   run_id TEXT REFERENCES runs(run_id),
@@ -101,6 +105,49 @@ CREATE TABLE IF NOT EXISTS source_runs (
   error_code TEXT NOT NULL DEFAULT '',
   retryable INTEGER NOT NULL DEFAULT 0
 );
+CREATE TABLE IF NOT EXISTS source_plan_entries (
+  source_plan_id TEXT PRIMARY KEY,
+  run_id TEXT NOT NULL REFERENCES runs(run_id),
+  source_category TEXT NOT NULL,
+  source_role TEXT NOT NULL DEFAULT 'discover',
+  target_signal TEXT NOT NULL DEFAULT '',
+  query_or_entry_url TEXT NOT NULL,
+  coverage TEXT NOT NULL DEFAULT '',
+  access_status TEXT NOT NULL DEFAULT 'planned',
+  contribution TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE(run_id, source_category, query_or_entry_url)
+);
+CREATE TABLE IF NOT EXISTS candidates (
+  candidate_id TEXT PRIMARY KEY,
+  run_id TEXT NOT NULL REFERENCES runs(run_id),
+  name_original TEXT NOT NULL,
+  name_normalized TEXT NOT NULL,
+  root_domain TEXT NOT NULL DEFAULT '',
+  primary_source_url TEXT NOT NULL,
+  country_hint TEXT NOT NULL DEFAULT '',
+  segment_hint TEXT NOT NULL DEFAULT '',
+  discovery_status TEXT NOT NULL DEFAULT 'candidate_pool',
+  decision_reason TEXT NOT NULL DEFAULT '',
+  selected_company_id TEXT REFERENCES companies(company_id),
+  first_seen_at TEXT NOT NULL,
+  last_seen_at TEXT NOT NULL,
+  UNIQUE(run_id, name_normalized)
+);
+CREATE TABLE IF NOT EXISTS candidate_sources (
+  candidate_source_id TEXT PRIMARY KEY,
+  run_id TEXT NOT NULL REFERENCES runs(run_id),
+  candidate_id TEXT NOT NULL REFERENCES candidates(candidate_id),
+  source_run_id TEXT NOT NULL REFERENCES source_runs(source_run_id),
+  source_category TEXT NOT NULL,
+  source_url TEXT NOT NULL,
+  observed_text TEXT NOT NULL,
+  observed_at TEXT NOT NULL,
+  UNIQUE(candidate_id, source_url)
+);
+CREATE INDEX IF NOT EXISTS ix_candidates_run_status ON candidates(run_id, discovery_status);
+CREATE INDEX IF NOT EXISTS ix_candidate_sources_run ON candidate_sources(run_id, source_category);
 CREATE TABLE IF NOT EXISTS evidence (
   evidence_id TEXT PRIMARY KEY,
   source_run_id TEXT REFERENCES source_runs(source_run_id),

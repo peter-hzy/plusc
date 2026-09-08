@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 安全问题
+    url: https://github.com/peter-hzy/plusc/security
+    about: 请不要在公开 Issue 中提交密钥、真实客户数据或漏洞细节。

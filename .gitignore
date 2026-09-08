@@ -7,6 +7,7 @@ data/
 output/
 outputs/
 workspace/
+uat/
 *.xlsx
 *.xls
 *.csv
@@ -30,6 +31,11 @@ venv/
 
 # Codex bundled JavaScript dependencies
 node_modules/
+
+# 本地设计和项目状态，不对外发布
+CONTEXT.md
+AI获客项目完整改进方案.md
+AI获客系统逻辑总梳理_*.md
 
 # OS / editor
 .DS_Store

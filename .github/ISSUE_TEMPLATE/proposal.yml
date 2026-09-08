@@ -1,0 +1,43 @@
+name: 功能或共创提案
+description: 提议新来源、新流程、新规则或文档改进
+title: "[Proposal] "
+body:
+  - type: dropdown
+    id: area
+    attributes:
+      label: 方向
+      options:
+        - 公司发现与来源适配器
+        - 公司匹配与买家判断
+        - 负责人与联系方式核验
+        - 邮件与 LinkedIn 草稿
+        - Excel 审阅与回复复盘
+        - Skill、文档或测试
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: 真实问题
+      description: 谁在什么情况下遇到什么问题？
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 建议方案
+      description: 说明输入、输出、验证方式和不做什么。
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: 依据或案例
+      description: 可选：脱敏测试、公开资料或实际操作反馈。
+  - type: checkboxes
+    id: boundaries
+    attributes:
+      label: 边界
+      options:
+        - label: 方案不依赖伪造数据、猜邮箱、自动群发或绕过平台限制。
+          required: true

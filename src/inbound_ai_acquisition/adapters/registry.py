@@ -1,7 +1,15 @@
 """可用来源清单。"""
 
+from .codex_bridge import CodexBridgeAdapter
+from .directory_csv import DirectoryCsvAdapter
 from .manual import ManualAdapter
+from .public_web import PublicWebAdapter
 
 
 def built_in_adapters() -> dict[str, object]:
-    return {name: ManualAdapter(name) for name in ("manual", "directory_csv", "public_web", "codex_bridge")}
+    return {
+        "manual": ManualAdapter(),
+        "directory_csv": DirectoryCsvAdapter(),
+        "public_web": PublicWebAdapter(),
+        "codex_bridge": CodexBridgeAdapter(),
+    }

@@ -14,7 +14,9 @@ from typing import Any
 
 from . import __version__
 from .adapters.registry import built_in_adapters
+from .application.discovery import discovery_coverage
 from .application.legacy_import import import_legacy_bundle
+from .application.research import research_status, run_research, verify_research_uat
 from .application.services import (
     add_stop,
     approve_draft,
@@ -107,6 +109,9 @@ def build_parser() -> argparse.ArgumentParser:
     run_create.add_argument("--market", required=True)
     run_create.add_argument("--segments", required=True)
     run_create.add_argument("--target", type=int, default=20)
+    run_create.add_argument("--candidate-pool-multiplier", type=float, default=3.0)
+    run_create.add_argument("--min-source-categories", type=int, default=3)
+    run_create.add_argument("--production-min-target", type=int, default=20)
     run_create.add_argument("--idempotency-key")
     run_status_parser = run.add_parser("status")
     add_workspace(run_status_parser)
@@ -115,6 +120,26 @@ def build_parser() -> argparse.ArgumentParser:
     add_workspace(run_close)
     add_request(run_close)
     run_close.add_argument("--run", required=True)
+
+    research = commands.add_parser("research").add_subparsers(dest="research_command", required=True)
+    research_run = research.add_parser("run")
+    add_workspace(research_run)
+    add_request(research_run)
+    research_run.add_argument("--run", required=True)
+    research_run.add_argument("--source-bundle", help="Codex bridge 内部研究结果；普通用户无需手工制作")
+    research_run.add_argument("--approve-actor", help="真实人工审核人；仅在批次确认后填写")
+    research_run.add_argument("--approve-reason", default="")
+    research_run.add_argument("--draft-bundle", help="Codex bridge 内部草稿结果；普通用户无需手工制作")
+    research_status_parser = research.add_parser("status")
+    add_workspace(research_status_parser)
+    research_status_parser.add_argument("--run", required=True)
+    research_coverage = research.add_parser("coverage")
+    add_workspace(research_coverage)
+    research_coverage.add_argument("--run", required=True)
+    research_verify = research.add_parser("verify")
+    add_workspace(research_verify)
+    research_verify.add_argument("--run", required=True)
+    research_verify.add_argument("--workbook")
 
     imports = commands.add_parser("import").add_subparsers(dest="import_command", required=True)
     for name in ("companies", "contacts", "evidence", "legacy", "review"):
@@ -490,10 +515,33 @@ def dispatch(args: argparse.Namespace) -> Any:
                 idempotency_key=args.idempotency_key or rid,
                 product_version=_profile_version(workspace.root / "product-profile.md"),
                 voice_version=_profile_version(workspace.root / "voice-profile.md"),
+                candidate_pool_multiplier=args.candidate_pool_multiplier,
+                min_source_categories=args.min_source_categories,
+                production_min_target=args.production_min_target,
             )
         if args.run_command == "status":
             return run_status(db, args.run)
         return close_run(db, args.run, rid)
+    if command == "research":
+        if args.research_command == "status":
+            return research_status(db, args.run)
+        if args.research_command == "coverage":
+            return discovery_coverage(db, args.run)
+        if args.research_command == "verify":
+            return verify_research_uat(
+                db,
+                args.run,
+                Path(args.workbook).resolve() if args.workbook else None,
+            )
+        return run_research(
+            db,
+            args.run,
+            rid,
+            source_bundle_path=Path(args.source_bundle).resolve() if args.source_bundle else None,
+            approve_actor=args.approve_actor or "",
+            approve_reason=args.approve_reason,
+            draft_bundle_path=Path(args.draft_bundle).resolve() if args.draft_bundle else None,
+        )
     if command == "import":
         path = Path(args.file).resolve()
         if args.import_command == "companies":

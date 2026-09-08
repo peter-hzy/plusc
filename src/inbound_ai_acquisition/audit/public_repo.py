@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +14,8 @@ EXCLUDED_PARTS = {
     "node_modules",
     "__pycache__",
     ".ruff_cache",
+    ".pytest_cache",
+    ".mypy_cache",
     "build",
     "dist",
     "outputs",
@@ -27,9 +30,34 @@ SECRET_PATTERNS = {
 }
 
 
+def repository_files(root: Path) -> list[Path]:
+    """在 Git 仓库中只审计已跟踪/已暂存文件；普通目录退回全量扫描。"""
+    try:
+        inside = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "--is-inside-work-tree"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        if inside.stdout.strip() == "true":
+            listed = subprocess.run(
+                ["git", "-C", str(root), "ls-files", "-z", "--cached"],
+                check=True,
+                capture_output=True,
+            )
+            return sorted(
+                path
+                for item in listed.stdout.decode("utf-8").split("\0")
+                if item and (path := root / item).is_file()
+            )
+    except (FileNotFoundError, subprocess.CalledProcessError, UnicodeDecodeError):
+        pass
+    return sorted(path for path in root.rglob("*") if path.is_file())
+
+
 def audit_public_repo(root: Path) -> dict[str, Any]:
     findings: list[dict[str, str]] = []
-    for path in root.rglob("*"):
+    for path in repository_files(root):
         if not path.is_file() or any(part in EXCLUDED_PARTS or part.endswith(".egg-info") for part in path.parts):
             continue
         relative = path.relative_to(root).as_posix()

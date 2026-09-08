@@ -7,16 +7,16 @@ import json
 from pathlib import Path
 from typing import Any
 
-from .public_repo import EXCLUDED_PARTS, audit_public_repo
+from .public_repo import EXCLUDED_PARTS, audit_public_repo, repository_files
 
 
 def _files(root: Path) -> list[Path]:
     return sorted(
         path
-        for path in root.rglob("*")
+        for path in repository_files(root)
         if path.is_file()
         and not any(part in EXCLUDED_PARTS or part.endswith(".egg-info") for part in path.parts)
-        and path.name != "skills.lock.json"
+        and path.name not in {"skills.lock.json", ".coverage"}
         and path.suffix.lower() not in {".pyc", ".xlsx", ".db", ".sqlite"}
     )
 

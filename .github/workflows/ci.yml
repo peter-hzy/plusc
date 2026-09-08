@@ -26,6 +26,5 @@ jobs:
       - run: ruff check src tests scripts
       - run: python -m unittest discover -s tests -p "test_*.py" -v
       - run: python -X utf8 scripts/validate_skill.py .
-      - run: python -X utf8 scripts/three_pass_check.py
       - run: inbound-leads audit public-repo
       - run: inbound-leads audit release

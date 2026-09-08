@@ -1,6 +1,6 @@
 # Inbound AI Acquisition
 
-[![CI](https://github.com/peter-hzy/inbound-ai-acquisition/actions/workflows/ci.yml/badge.svg)](https://github.com/peter-hzy/inbound-ai-acquisition/actions/workflows/ci.yml)
+[![CI](https://github.com/peter-hzy/plusc/actions/workflows/ci.yml/badge.svg)](https://github.com/peter-hzy/plusc/actions/workflows/ci.yml)
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
@@ -123,6 +123,18 @@ V1 有意保持边界清晰：
 
 ---
 
+## 参与共创
+
+PlusC 欢迎旅游业务、海外 B2B 获客、公开数据研究、Python、Codex Skill 和测试方向的共创者。当前最需要的不是增加功能数量，而是完成真实 20—25 家批次验证，并把来源、负责人和话术的准确性做稳。
+
+- 想找可做的任务：查看 [共创路线图](ROADMAP.md) 和 Issues。
+- 想提交代码或业务方法：阅读 [贡献指南](CONTRIBUTING.md)。
+- 想了解合并和发布方式：阅读 [共创规则](GOVERNANCE.md)。
+
+请先用 Issue 描述真实问题和预期结果，不要上传真实客户数据、凭据或内部价格。
+
+---
+
 ## 五分钟安装
 
 ### 环境要求
@@ -137,8 +149,8 @@ V1 有意保持边界清晰：
 ### Windows
 
 ```powershell
-git clone https://github.com/peter-hzy/inbound-ai-acquisition.git
-Set-Location inbound-ai-acquisition
+git clone https://github.com/peter-hzy/plusc.git
+Set-Location plusc
 
 py -3.11 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -e ".[excel]"
@@ -165,8 +177,8 @@ $Workspace = "$env:USERPROFILE\Documents\inbound-leads-data"
 ### macOS / Linux
 
 ```bash
-git clone https://github.com/peter-hzy/inbound-ai-acquisition.git
-cd inbound-ai-acquisition
+git clone https://github.com/peter-hzy/plusc.git
+cd plusc
 
 python3.11 -m venv .venv
 .venv/bin/python -m pip install -e '.[excel]'
@@ -245,12 +257,33 @@ inbound-leads run create `
   --market AU,NZ `
   --segments travel_agency,dmc,tour_operator `
   --target 20 `
+  --candidate-pool-multiplier 3 `
+  --min-source-categories 3 `
+  --production-min-target 20 `
   --idempotency-key first-au-nz-batch
 ```
 
 命令会返回一个 `run_id`。后面的导入、查看进度和导出都使用这个批次编号。
 
 ### 第三步：让 Codex 执行研究
+
+创建 run 后，用户只需要启动统一工作流：
+
+```powershell
+inbound-leads research run --workspace $Workspace --run <run_id>
+```
+
+命令会返回当前阶段。使用本仓库 Skill 时，Codex 会根据 `awaiting_source_execution` 主动研究公开来源，通过 `codex_bridge` 保存 SourcePlan、完整 CandidatePool、CandidateSources、SourceRun、Evidence 和 proposed Claim；用户不需要在多个文件之间手工搬数据。
+
+返回结果中的 `coverage` 会显示候选池大小、来源类别、每类来源的独有/重叠候选、缺失客户类型和 `production_ready`。客户类型数量不设硬比例；缺失类型只提示补搜。上面三个参数默认为 3 倍候选、3 类来源和 20 家正式基线，都可按市场难度调整。同一 run 可分多轮补搜，重复公司优先按根域名合并来源。
+
+遇到 `awaiting_claim_review` 时，系统只暂停一次供整批人工审核。批准后从同一个 run 继续生成两种渠道草稿。
+
+只查看发现覆盖而不展开全部公司详情：
+
+```powershell
+inbound-leads research coverage --workspace $Workspace --run <run_id>
+```
 
 可以直接对 Codex 说：
 
@@ -300,7 +333,7 @@ inbound-leads import companies `
 ### 第五步：查看进度和导出审核表
 
 ```powershell
-inbound-leads run status --workspace $Workspace --run <run_id>
+inbound-leads research status --workspace $Workspace --run <run_id>
 
 inbound-leads export workbook `
   --workspace $Workspace `
@@ -308,11 +341,16 @@ inbound-leads export workbook `
   --output "$Workspace\exports\first-batch.xlsx"
 ```
 
-Excel 包含 12 张工作表：
+按批次导出时，Excel 包含 2 张业务审阅表和 15 张审计明细表，共 17 张：
 
 | 工作表 | 用途 |
 |---|---|
+| `LeadReview` | 顶部公司总览，以及逐家公司展开的联系理由、负责人、渠道、Evidence、风险、缺口、两种草稿和下一步 |
+| `DiscoveryCoverage` | 候选池规模、正式批次状态、补搜提醒及各来源独有/重叠贡献 |
 | `RunSummary` | 批次目标与当前状态 |
+| `CandidatePool` | 全部发现候选、当前处理状态和未入选原因 |
+| `SourcePlan` | 来源计划、目标信号、覆盖范围和执行状态 |
+| `CandidateSources` | 一个候选被哪些来源发现，用于分析独有贡献与重叠 |
 | `Companies` | 候选公司及正式字段 |
 | `Contacts` | 负责人、职位和联系方式 |
 | `Evidence` | 来源、观察内容和抓取时间 |
@@ -326,6 +364,15 @@ Excel 包含 12 张工作表：
 | `SourcePerformance` | 各来源查询成功、无结果、受限或失败情况 |
 
 Excel 是审核快照，不是数据库。不要直接修改 Excel 后把它当成正式结果；需要回写时使用受控导入和变更预览。
+
+最终交付前运行闭环验收：
+
+```powershell
+inbound-leads research verify `
+  --workspace $Workspace `
+  --run <run_id> `
+  --workbook "$Workspace\exports\final.xlsx"
+```
 
 ### 第六步：人工审核与发送
 
@@ -410,7 +457,7 @@ inbound-leads <一级命令> --help
 仓库只保存代码、规则、模板和虚构示例。真实数据目录必须放在仓库外，例如：
 
 ```text
-GitHub 仓库： C:\Projects\inbound-ai-acquisition
+GitHub 仓库： C:\Projects\plusc
 私有工作区： C:\Users\you\Documents\inbound-leads-data
 ```
 
@@ -435,7 +482,7 @@ inbound-leads audit release
 ## 项目结构
 
 ```text
-inbound-ai-acquisition/
+plusc/
 ├── SKILL.md                    Codex 主入口和工作路由
 ├── src/inbound_ai_acquisition/ Python 包与 inbound-leads CLI
 │   ├── adapters/               来源适配器合同
@@ -444,7 +491,6 @@ inbound-ai-acquisition/
 │   ├── domain/                 状态、政策和安全门禁
 │   ├── exporters/              Excel 与 JSON 导出
 │   └── storage/                SQLite、迁移和仓储
-├── migrations/                 数据库迁移标记
 ├── references/                 研究、身份、话术与安全规则
 ├── templates/                  产品、语气、来源和回复模板
 ├── docs/                       快速开始、CLI、UAT 与故障排查
@@ -452,6 +498,8 @@ inbound-ai-acquisition/
 ├── tests/                      单元、集成、安全和端到端测试
 ├── examples/                   纯虚构示例
 ├── ARCHITECTURE.md             架构与模块职责
+├── ROADMAP.md                  共创优先级与可领取任务
+├── GOVERNANCE.md               评审、决策与发布规则
 └── skills.lock.json            发布文件完整性清单
 ```
 
@@ -469,7 +517,6 @@ py -3.11 -m pip install -e ".[dev]"
 ruff check src tests scripts
 py -3.11 -m unittest discover -s tests -p "test_*.py" -v
 python -X utf8 scripts/validate_skill.py .
-python -X utf8 scripts/three_pass_check.py
 inbound-leads audit public-repo
 inbound-leads audit build-lock
 inbound-leads audit release
@@ -487,9 +534,9 @@ GitHub Actions 会在以下四种组合中运行同一套检查：
 当前工程验证已经完成：
 
 - 全新目录克隆和安装通过；
-- 16 个自动化测试通过；
+- 24 个自动化测试通过；
 - Windows/Linux 跨平台 CI 通过；
-- Skill 结构、业务闭环和安全边界三遍检查通过；
+- Skill 结构校验、业务不变式测试和安全审计通过；
 - 公开仓库敏感文件检查与发布锁检查通过。
 
 这些结果证明程序可以按照既定合同运行，但不代表已经证明真实获客转化率。
@@ -532,8 +579,9 @@ Excel 适合人工审阅，但容易被误改、覆盖和复制。SQLite 保存�
 
 ## 文档导航
 
-- [完整改进方案](AI获客项目完整改进方案.md)
 - [架构说明](ARCHITECTURE.md)
+- [共创路线图](ROADMAP.md)
+- [共创规则](GOVERNANCE.md)
 - [快速开始](docs/quickstart.md)
 - [CLI 命令](docs/cli.md)
 - [数据模型](docs/data-model.md)

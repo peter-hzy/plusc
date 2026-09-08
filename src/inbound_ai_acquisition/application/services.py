@@ -71,6 +71,9 @@ def create_run(
     idempotency_key: str,
     product_version: str = "",
     voice_version: str = "",
+    candidate_pool_multiplier: float = 3.0,
+    min_source_categories: int = 3,
+    production_min_target: int = 20,
 ) -> dict[str, Any]:
     payload = {
         "markets": markets,
@@ -78,22 +81,31 @@ def create_run(
         "target": target,
         "product_version": product_version,
         "voice_version": voice_version,
+        "candidate_pool_multiplier": candidate_pool_multiplier,
+        "min_source_categories": min_source_categories,
+        "production_min_target": production_min_target,
     }
     if not markets or not segments or target < 1:
         raise ValidationError("市场、客户类型和目标数量不能为空")
+    if candidate_pool_multiplier < 1 or min_source_categories < 1 or production_min_target < 1:
+        raise ValidationError("候选池倍数、来源类别和正式批次基线必须大于等于1")
     with db.transaction() as connection:
         prior = db.idempotency_lookup(connection, idempotency_key, payload)
         if prior:
             return prior
         run_id = new_id("run")
         connection.execute(
-            "INSERT INTO runs(run_id,markets,segments,target_count,status,next_action,product_version,voice_version,created_at) "
-            "VALUES (?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO runs(run_id,markets,segments,target_count,candidate_pool_multiplier,min_source_categories,"
+            "production_min_target,status,next_action,product_version,voice_version,created_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
             (
                 run_id,
                 ",".join(markets),
                 ",".join(segments),
                 target,
+                candidate_pool_multiplier,
+                min_source_categories,
+                production_min_target,
                 "created",
                 "导入或研究候选公司",
                 product_version,
@@ -113,13 +125,22 @@ def run_status(db: Database, run_id: str) -> dict[str, Any]:
         raise ValidationError("找不到 run")
     summary = rows[0]
     counts: dict[str, int] = {}
-    for table in ("companies", "contacts", "claims", "drafts", "replies", "research_gaps"):
+    for table in ("companies", "contacts", "source_runs", "evidence", "claims", "drafts", "replies", "research_gaps"):
         if table in {"companies", "drafts"}:
             count = db.query(f"SELECT COUNT(*) AS n FROM {table} WHERE run_id=?", (run_id,))[0]["n"]
         elif table == "contacts":
             count = db.query(
                 "SELECT COUNT(*) AS n FROM contacts c JOIN companies x ON x.company_id=c.company_id WHERE x.run_id=?",
                 (run_id,),
+            )[0]["n"]
+        elif table == "source_runs":
+            count = db.query("SELECT COUNT(*) AS n FROM source_runs WHERE run_id=?", (run_id,))[0]["n"]
+        elif table == "evidence":
+            count = db.query(
+                "SELECT COUNT(*) AS n FROM evidence e WHERE "
+                "(e.entity_type='company' AND e.entity_id IN (SELECT company_id FROM companies WHERE run_id=?)) OR "
+                "(e.entity_type='contact' AND e.entity_id IN (SELECT c.contact_id FROM contacts c JOIN companies x ON x.company_id=c.company_id WHERE x.run_id=?))",
+                (run_id, run_id),
             )[0]["n"]
         elif table in {"claims", "research_gaps"}:
             count = db.query(
@@ -203,7 +224,8 @@ def import_companies(db: Database, run_id: str, path: Path, request_id: str) -> 
             website = normalize_url(str(row.get("website", ""))) if row.get("website") else ""
             domain = root_domain(website)
             existing = connection.execute(
-                "SELECT company_id FROM companies WHERE root_domain=? AND ?<>''", (domain, domain)
+                "SELECT company_id FROM companies WHERE run_id=? AND root_domain=? AND ?<>''",
+                (run_id, domain, domain),
             ).fetchone()
             if existing:
                 continue

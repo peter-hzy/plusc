@@ -23,6 +23,17 @@
 - `KeeLead` 展示了UI、MCP和大量来源插件的扩展方向；V1只保留来源合同和注册表，避免“目录存在但实现是占位符”的假完整。
 - 成熟公开仓库常见的 README、LICENSE、CHANGELOG、CONTRIBUTING、SECURITY、环境变量示例、CI和测试均应具备；真实数据和运行数据库不进入仓库。
 
+## 源码级复核后的采用与拒绝
+
+- `LeadMagic/gtm-skills`：采用来源计划、查询词族、独有贡献、重叠和覆盖缺口的思路；不把文档型检查器当成真实数据质量验证。
+- `profilespider-agent-skills`：采用“每条输入有明确去向”和研究缺口合同；其主体是方法文档，不能替代真实来源执行。
+- `linkedin_skills`：采用持久线索登记、去重、触达历史和基于真实回复的复盘；它依赖外部 CSV，不承担广泛找名单，因此只能放在发现之后。
+- `ai-sales-team-claude`：拒绝关闭 TLS 校验、估算邮箱和默认多封连续触达；保留公司研究、联系人研究和渠道话术分工。
+- `KeeLead`：只采用适配器注册、任务状态和 MCP 外壳。其部分 lead、research 和 source 实现会随机生成公司资料、联系人、邮箱、电话或验证状态，严禁进入本项目的数据层。
+- `trycompai/crm`：采用“候选不是证明”、弱证据进入人工判断、任务可重试及 `WAITING_FOR_APPROVAL` 的设计；不引入完整 CRM、Postgres、前后端 Monorepo 和持续运行 Agent。
+
+本项目因此保留轻量 CLI + SQLite，但新增完整 CandidatePool、SourcePlan、CandidateSources 和覆盖诊断。发现能力可以继续增加真实适配器，任何来源在没有真实执行和负向测试前不得宣传为“已支持”。
+
 ## 任何新增来源的准入条件
 
 1. 有清楚的授权方式、限制和费用；

@@ -23,20 +23,30 @@ metadata:
 
 ## 默认业务上下文
 
-澳大利亚、新西兰优先，美国、加拿大同步；第一客户是海外旅行社、DMC、旅游批发商，后续扩展企业差旅、MICE、会展和活动策划公司。第一阶段围绕定制中国线路和地接整包服务，后续加入会展接待、活动接待和商务团。每批目标 20—25 家公司；早期不设置苛刻的硬评分，只要基本匹配且有可解释的联系依据，就进入聊天池。
+澳大利亚、新西兰优先，美国、加拿大同步。首要客户是海外旅行社、DMC 和旅游批发商，后续扩展企业差旅、MICE、会展和活动公司。默认正式批次目标为 20—25 家，但候选池倍数、来源数和正式基线都属于批次可配置的防漏参数，不是客户类型配额。
 
 若用户提供了更新的产品、市场或优先级，以最新确认内容为准；没有产品资料时不得编造线路、价格、资质、案例、库存、佣金或承诺。
 
-## 标准闭环
+## 执行闭环
 
 1. 明确市场、客户类型、产品场景和本批任务边界。
-2. 从多个公开来源研究公司，记录 URL、日期、事实、推断、未知和冲突。
+2. 制定多来源计划，发现并保存完整候选池；先证明公司是目标市场的出境客源方，再核验中国/亚洲长线产品、外部中国地接合作路径和竞争关系；每轮后查看 `research coverage`，不足时在同一 run 继续补搜。
 3. 找公开业务负责人或可转交联系人，记录职位、职责证据、LinkedIn 和公开业务邮箱（如有）。
-4. 生成 20—25 家名单或按用户指定数量输出，先去重，再标记 `chat_candidate`、`priority_chat`、`research_needed`、`nurture`、`not_fit` 或 `do_not_contact`。
+4. 客户类型分布只用来发现搜索偏科，不为凑数降低匹配和证据标准。
 5. 同一轮准备邮件和 LinkedIn 草稿，但两者必须是渠道原生内容；每条只保留一个轻量 CTA。
 6. 执行三遍检查：事实、话术、权限/风险。把疑点交给人工，不静默补全。
 7. 由人工审核、发送、聊天、报价和承诺；Skill 只保存草稿和下一步建议。
 8. 将回复分类，提取真实需求，形成询盘摘要，并把结果用于下一轮修正。
+
+## 真实研究
+
+优先使用 `research` 工作流，不让用户在多个 JSON 表之间手工搬数据。在仓库外初始化 workspace 并填写产品和语气资料；创建 run 后，按 `awaiting_source_execution → awaiting_claim_review → awaiting_drafts → review_outreach` 推进。
+
+来源研究可分多轮增量写入：保存所有候选和发现来源，按根域名优先去重；`production_ready=false` 只表示需继续补搜或保持为小样本，不得伪称正式批次完成。Claim 只能由真实人工审核；之后为每家公司生成引用本公司 Evidence、恰好一个 CTA 的 Email 和 LinkedIn 原生草稿。最后导出 Excel/JSON 并运行 `research verify` 和工作区审计。
+
+官网优先用于公司核验。LinkedIn 仅使用无需绕过登录限制的公开页面或公开搜索结果；遇到限制要记录 restricted。找不到负责人时保存 `searched_not_found` 或可核验的企业转交入口，不猜姓名、职位或邮箱。
+
+目标市场的本地入境 DMC、只做本国接待的公司不是海外客源买方。经营中国线路也不等于需要新地接；自营中国团队或一体化运营商要标记竞争关系。只有客源市场角色、中国产品适配和外部合作路径都有证据时，才可列为优先联系。
 
 ## 触达硬边界
 
@@ -58,17 +68,6 @@ metadata:
 
 ## 本地工具
 
-正式运行优先使用统一 CLI。先运行 `inbound-leads doctor`；处理真实数据时始终传入仓库外的 `--workspace`：
-
-- `inbound-leads init`、`context validate`：初始化并检查产品与语气资料。
-- `inbound-leads run create|status|close`：建立20—25家公司批次并查看进度。
-- `inbound-leads import companies|contacts|evidence|legacy`：导入结构化观察或迁移旧数据。
-- `inbound-leads claim propose|accept|hold|reject`：把证据、事实提议和人工决定分开。
-- `inbound-leads draft create|check|approve|mark-sent|stop`：执行草稿门禁；`mark-sent` 只记录人工发送。
-- `inbound-leads reply ingest`、`stop add|list|release`：回灌回复并执行停止联系规则。
-- `inbound-leads export workbook|json`：导出只读审阅快照。
-- `inbound-leads audit workspace|public-repo|release`：检查数据、隐私和发布状态。
-
-仓库中的 `scripts/` 是旧格式兼容和项目发布工具，不属于安装后 Skill 的运行依赖。不要在普通获客任务中绕过 CLI 直接组合旧脚本。
+先运行 `inbound-leads doctor`，真实数据始终使用仓库外的 `--workspace`。核心命令是 `init`、`context validate`、`run`、`research`、`claim`、`draft`、`reply ingest`、`stop`、`export` 和 `audit`；参数以 CLI 帮助为准。旧格式导入脚本只用于兼容，不要绕过 CLI 组装新流程。
 
 完成真实任务前先阅读相关 reference；完成后运行三遍检查。CLI 和脚本都不能替代人工审核，也不能扩大用户授权。
