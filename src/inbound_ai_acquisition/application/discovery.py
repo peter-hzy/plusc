@@ -52,14 +52,12 @@ def discovery_coverage(db: Database, run_id: str) -> dict[str, Any]:
     requested_segments = {item.strip() for item in str(run["segments"]).split(",") if item.strip()}
     recommended_pool = max(target, math.ceil(target * multiplier))
     warnings: list[str] = []
+    if selected < target:
+        warnings.append(f"入选数量尚未达标：{selected}/{target}，还缺{target - selected}家；保持原目标继续研究")
     if target < production_min_target:
-        warnings.append(
-            f"target_count={target} 低于本批次正式基线 {production_min_target}，当前按小样本测试处理"
-        )
+        warnings.append(f"target_count={target} 低于本批次正式基线 {production_min_target}，当前按小样本测试处理")
     if len(candidates) < recommended_pool:
-        warnings.append(
-            f"候选池偏小：{len(candidates)}/{recommended_pool}（本批次基线为目标的 {multiplier:g} 倍）"
-        )
+        warnings.append(f"候选池偏小：{len(candidates)}/{recommended_pool}（本批次基线为目标的 {multiplier:g} 倍）")
     if len(categories) < min_categories:
         warnings.append(f"发现来源偏少：当前{len(categories)}类，本批次基线为{min_categories}类")
     missing_segments = sorted(requested_segments - found_segments)
@@ -73,15 +71,23 @@ def discovery_coverage(db: Database, run_id: str) -> dict[str, Any]:
         and len(candidates) >= recommended_pool
         and len(categories) >= min_categories
     )
+    execution_outcomes = {
+        row["outcome"]: row["n"]
+        for row in db.query("SELECT outcome,COUNT(*) AS n FROM source_runs WHERE run_id=? GROUP BY outcome", (run_id,))
+    }
     return {
         "target_count": target,
         "candidate_count": len(candidates),
         "selected_count": selected,
+        "selected_shortfall": max(0, target - selected),
+        "selection_target_met": selected >= target,
         "recommended_pool": recommended_pool,
         "source_category_count": len(categories),
         "found_segments": sorted(found_segments),
         "missing_segments": missing_segments,
         "production_ready": coverage_ready,
+        "coverage_complete": coverage_ready,
+        "readiness_note": "仅数量/来源覆盖诊断，不证明产品匹配、采购意向或允许发送",
         "policy": {
             "candidate_pool_multiplier": multiplier,
             "min_source_categories": min_categories,
@@ -90,4 +96,5 @@ def discovery_coverage(db: Database, run_id: str) -> dict[str, Any]:
         "warnings": warnings,
         "source_plan": plans,
         "source_performance": performance,
+        "execution_outcomes": execution_outcomes,
     }

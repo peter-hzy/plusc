@@ -15,7 +15,7 @@ def _files(root: Path) -> list[Path]:
         path
         for path in repository_files(root)
         if path.is_file()
-        and not any(part in EXCLUDED_PARTS or part.endswith(".egg-info") for part in path.parts)
+        and not any(part in EXCLUDED_PARTS or part.endswith(".egg-info") for part in path.relative_to(root).parts)
         and path.name not in {"skills.lock.json", ".coverage"}
         and path.suffix.lower() not in {".pyc", ".xlsx", ".db", ".sqlite"}
     )

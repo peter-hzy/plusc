@@ -1,6 +1,6 @@
 """内置迁移。"""
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 5
 
 INITIAL_SQL = r"""
 PRAGMA foreign_keys = ON;
@@ -75,8 +75,8 @@ CREATE TABLE IF NOT EXISTS contacts (
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
-CREATE UNIQUE INDEX IF NOT EXISTS uq_contact_linkedin ON contacts(linkedin_url) WHERE linkedin_url <> '';
-CREATE UNIQUE INDEX IF NOT EXISTS uq_contact_email ON contacts(public_email) WHERE public_email <> '';
+CREATE UNIQUE INDEX IF NOT EXISTS uq_contact_company_linkedin ON contacts(company_id,linkedin_url) WHERE linkedin_url <> '';
+CREATE UNIQUE INDEX IF NOT EXISTS uq_contact_company_email ON contacts(company_id,public_email) WHERE public_email <> '';
 CREATE TABLE IF NOT EXISTS entity_keys (
   entity_key_id TEXT PRIMARY KEY,
   entity_type TEXT NOT NULL,
@@ -222,7 +222,12 @@ CREATE TABLE IF NOT EXISTS drafts (
   updated_at TEXT NOT NULL,
   sent_at TEXT
 );
+CREATE TABLE IF NOT EXISTS draft_contracts (
+  draft_id TEXT PRIMARY KEY REFERENCES drafts(draft_id),
+  contract_json TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS approvals (
+  -- body_hash字段兼容旧表；v4开始保存完整发送快照的哈希。
   approval_id TEXT PRIMARY KEY,
   draft_id TEXT NOT NULL REFERENCES drafts(draft_id),
   body_hash TEXT NOT NULL,

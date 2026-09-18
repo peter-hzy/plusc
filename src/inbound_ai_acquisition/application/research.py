@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -11,13 +12,36 @@ from ..adapters.registry import built_in_adapters
 from ..domain.policies import require_one_cta
 from ..errors import StateError, ValidationError
 from ..storage.database import Database, canonical_hash, new_id, utc_now
+from ..storage.repositories import active_stop_exists
 from .discovery import discovery_coverage
 from .services import create_draft, decide_claim, normalize_name, normalize_url, root_domain
+
+
+def _field_evidence(connection: Any, record: dict[str, Any], field: str, evidence_ids: list[str]) -> list[str]:
+    """Explicit URL bindings narrow evidence; legacy bundles retain review-only broad bindings."""
+    bindings = record.get("field_sources")
+    if bindings is None:
+        return evidence_ids
+    if not isinstance(bindings, dict):
+        raise ValidationError("field_sources 必须是字段到URL数组的映射")
+    urls = bindings.get(field)
+    if not isinstance(urls, list) or not urls or any(not isinstance(u, str) for u in urls):
+        raise ValidationError(f"field_sources 缺少{field}的来源")
+    wanted = {normalize_url(u) for u in urls}
+    rows = [
+        connection.execute("SELECT source_url FROM evidence WHERE evidence_id=?", (eid,)).fetchone()
+        for eid in evidence_ids
+    ]
+    selected = [eid for eid, row in zip(evidence_ids, rows, strict=True) if row[0] in wanted]
+    if not selected or wanted - {row[0] for row in rows}:
+        raise ValidationError(f"{field}关联了未在本实体成功读取的来源")
+    return selected
+
 
 _CANDIDATE_STATUSES = {"candidate_pool", "selected", "held", "excluded"}
 
 _FIT_GATE_VALUES = {
-    "source_market_role": {"outbound_seller", "unclear", "not_source_market"},
+    "source_market_role": {"outbound_seller", "channel_partner", "unclear", "not_source_market"},
     "china_product_signal": {"direct", "adjacent", "none"},
     "ground_partner_route": {"external_partner_possible", "unclear", "in_house"},
     "competitive_position": {"potential_buyer", "mixed", "competitor", "unknown"},
@@ -41,10 +65,19 @@ def validate_company_fit_gates(company: dict[str, Any]) -> dict[str, str]:
         if value not in allowed:
             raise ValidationError(f"{name}：{field} 值无效：{value}")
         values[field] = value
-    if values["source_market_role"] != "outbound_seller":
+    path = str(company.get("qualification_path", "direct"))
+    if path not in {"direct", "expansion", "channel"}:
+        raise ValidationError("qualification_path 无效")
+    if values["source_market_role"] != ("channel_partner" if path == "channel" else "outbound_seller"):
         raise ValidationError(f"{name}：客源市场角色不是向本市场客人销售出境产品的公司")
-    if values["china_product_signal"] == "none":
+    if path == "direct" and values["china_product_signal"] == "none":
         raise ValidationError(f"{name}：没有中国产品或可解释的亚洲长线适配信号")
+    if path != "direct":
+        for field in ("audience_fit", "cooperation_hypothesis", "counter_evidence", "next_action"):
+            if not str(company.get(field, "")).strip():
+                raise ValidationError(f"{name}：{path}路径缺少{field}")
+        if str(company.get("fit_status")) == "priority_chat":
+            raise ValidationError(f"{name}：扩展/渠道假设仅进入待确认对话池，不自动升优先")
     status = str(company.get("fit_status", "")).strip()
     if status in {"priority_chat", "chat_candidate"} and values["competitive_position"] == "competitor":
         raise ValidationError(f"{name}：一体化竞争者不能进入优先或可联系名单")
@@ -127,6 +160,26 @@ def _insert_source_run(
 def _insert_evidence(connection: Any, source_run_id: str, entity_type: str, entity_id: str, row: dict[str, Any]) -> str:
     evidence_id = str(row.get("evidence_id") or new_id("ev"))
     text = str(row["observed_text"]).strip()
+    existing = connection.execute(
+        "SELECT evidence_id FROM evidence WHERE entity_type=? AND entity_id=? AND source_url=? "
+        "AND content_hash=? AND purpose=? AND access_status=? AND conflicts=? AND source_level=? "
+        "AND published_at IS ? AND (?='' OR observed_at=?)",
+        (
+            entity_type,
+            entity_id,
+            normalize_url(str(row["source_url"])),
+            canonical_hash(text),
+            str(row.get("purpose", "")),
+            str(row.get("access_status", "accessible")),
+            int(bool(row.get("conflicts", False))),
+            str(row.get("source_level", "secondary")),
+            row.get("published_at"),
+            str(row.get("observed_at") or ""),
+            str(row.get("observed_at") or ""),
+        ),
+    ).fetchone()
+    if existing:
+        return existing["evidence_id"]
     connection.execute(
         "INSERT INTO evidence VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (
@@ -158,7 +211,25 @@ def _insert_claim(
     evidence_ids: list[str],
     grade: str,
 ) -> str:
+    # Replaying an observation must not duplicate or silently reapprove a fact.
+    for previous in connection.execute(
+        "SELECT claim_id,proposed_value FROM claims WHERE entity_type=? AND entity_id=? AND field_name=? "
+        "AND status<>'superseded' ORDER BY rowid DESC LIMIT 1",
+        (entity_type, entity_id, field),
+    ).fetchall():
+        linked = {
+            r[0]
+            for r in connection.execute(
+                "SELECT evidence_id FROM claim_evidence WHERE claim_id=?", (previous["claim_id"],)
+            )
+        }
+        if previous["proposed_value"] == value and linked == set(evidence_ids):
+            return previous["claim_id"]
     claim_id = new_id("cl")
+    connection.execute(
+        "UPDATE claims SET status='superseded' WHERE entity_type=? AND entity_id=? AND field_name=? AND status='proposed'",
+        (entity_type, entity_id, field),
+    )
     connection.execute(
         "INSERT INTO claims VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (
@@ -269,7 +340,14 @@ def ingest_source_bundle(db: Database, run_id: str, bundle: dict[str, Any], requ
         for candidate in discovered_candidates:
             normalized_name = normalize_name(str(candidate["name"]))
             candidate_url = normalize_url(str(candidate["source_url"]))
-            candidate_domain = root_domain(candidate_url)
+            # 目录/展会页面属于来源平台，不是被列出的公司官网。
+            company_url = str(candidate.get("website", "")).strip()
+            if not company_url and candidate.get("source_category", "public_web_search") in {
+                "official_company_site",
+                "public_web_search",
+            }:
+                company_url = candidate_url
+            candidate_domain = root_domain(company_url) if company_url else ""
             status = str(candidate.get("discovery_status", "candidate_pool"))
             if status not in _CANDIDATE_STATUSES - {"selected"}:
                 raise ValidationError(f"候选状态不合法：{status}")
@@ -283,7 +361,8 @@ def ingest_source_bundle(db: Database, run_id: str, bundle: dict[str, Any], requ
                 cursor = connection.execute(
                     "UPDATE candidates SET country_hint=CASE WHEN ?<>'' THEN ? ELSE country_hint END,"
                     "segment_hint=CASE WHEN ?<>'' THEN ? ELSE segment_hint END,"
-                    "decision_reason=CASE WHEN ?<>'' THEN ? ELSE decision_reason END,last_seen_at=? WHERE candidate_id=?",
+                    "decision_reason=CASE WHEN ?<>'' THEN ? ELSE decision_reason END,"
+                    "root_domain=CASE WHEN root_domain='' THEN ? ELSE root_domain END,last_seen_at=? WHERE candidate_id=?",
                     (
                         str(candidate.get("country_hint", "")).strip(),
                         str(candidate.get("country_hint", "")).strip(),
@@ -291,6 +370,7 @@ def ingest_source_bundle(db: Database, run_id: str, bundle: dict[str, Any], requ
                         str(candidate.get("segment_hint", "")).strip(),
                         str(candidate.get("decision_reason", "")).strip(),
                         str(candidate.get("decision_reason", "")).strip(),
+                        candidate_domain,
                         now,
                         candidate_id,
                     ),
@@ -350,40 +430,49 @@ def ingest_source_bundle(db: Database, run_id: str, bundle: dict[str, Any], requ
                 raise ValidationError(f"公司官网域名缺失或重复：{domain}")
             seen_domains.add(domain)
             existing_company = connection.execute(
-                "SELECT company_id FROM companies WHERE run_id=? AND root_domain=?", (run_id, domain)
+                "SELECT company_id FROM companies WHERE run_id=? AND (root_domain=? OR company_id IN "
+                "(SELECT selected_company_id FROM candidates WHERE run_id=? AND candidate_id=?))",
+                (
+                    run_id,
+                    domain,
+                    run_id,
+                    candidate_ids.get(normalize_name(str(company["name"]))) or candidate_ids_by_domain.get(domain),
+                ),
             ).fetchone()
             if existing_company:
-                candidate_id = candidate_ids.get(normalize_name(str(company["name"]))) or candidate_ids_by_domain.get(domain)
+                candidate_id = candidate_ids.get(normalize_name(str(company["name"]))) or candidate_ids_by_domain.get(
+                    domain
+                )
                 if candidate_id:
                     connection.execute(
                         "UPDATE candidates SET discovery_status='selected',selected_company_id=?,last_seen_at=? "
                         "WHERE candidate_id=?",
                         (existing_company["company_id"], now, candidate_id),
                     )
-                continue
-            company_id = new_id("co")
-            connection.execute(
-                "INSERT INTO companies VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                (
-                    company_id,
-                    run_id,
-                    str(company["name"]).strip(),
-                    normalize_name(str(company["name"])),
-                    "",
-                    str(company.get("city", "")),
-                    "",
-                    "",
-                    "",
-                    "",
-                    "research_needed",
-                    "",
-                    str(company.get("risk_notes", "")),
-                    now,
-                    now,
-                ),
-            )
-            changed += 1
-            created_companies += 1
+            company_id = existing_company["company_id"] if existing_company else new_id("co")
+            if not existing_company:
+                connection.execute(
+                    "INSERT INTO companies VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (
+                        company_id,
+                        run_id,
+                        str(company["name"]).strip(),
+                        normalize_name(str(company["name"])),
+                        "",
+                        str(company.get("city", "")),
+                        "",
+                        "",
+                        "",
+                        "",
+                        "research_needed",
+                        "",
+                        str(company.get("risk_notes", "")),
+                        now,
+                        now,
+                    ),
+                )
+                changed += 1
+                created_companies += 1
             candidate = candidate_by_name.get(normalize_name(str(company["name"])))
             if candidate is None:
                 candidate = next(
@@ -472,36 +561,78 @@ def ingest_source_bundle(db: Database, run_id: str, bundle: dict[str, Any], requ
                     entity_id=company_id,
                     field=field,
                     value=value,
-                    evidence_ids=company_evidence,
+                    evidence_ids=_field_evidence(connection, company, field, company_evidence),
                     grade=grade,
                 )
                 changed += 1
+            for field in (
+                "qualification_path",
+                "audience_fit",
+                "cooperation_hypothesis",
+                "counter_evidence",
+                "next_action",
+                "group_key",
+                "independent_unit_reason",
+            ):
+                if str(company.get(field, "")).strip():
+                    _insert_claim(
+                        connection,
+                        entity_type="company",
+                        entity_id=company_id,
+                        field=field,
+                        value=str(company[field]),
+                        evidence_ids=_field_evidence(connection, company, field, company_evidence),
+                        grade="strong",
+                    )
             contact = company["contact"]
             if not isinstance(contact, dict):
                 raise ValidationError("contact 必须是 object")
             contact_sources = contact.get("sources", [])
             if not contact_sources:
                 raise ValidationError("每家公司必须保存负责人或公开转交入口的来源")
-            contact_id = new_id("ct")
-            connection.execute(
-                "INSERT INTO contacts VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                (
-                    contact_id,
-                    company_id,
-                    "",
-                    "",
-                    "",
-                    str(contact.get("contact_role", "primary")),
-                    "",
-                    "",
-                    "unverified",
-                    "not_contacted",
-                    None,
-                    now,
-                    now,
-                ),
+            # Reuse the same observed route, not an arbitrary person at the company.
+            route_key = tuple(
+                str(contact.get(k, "")).strip().casefold() for k in ("public_email", "linkedin_url", "full_name")
             )
-            changed += 1
+            existing_contact = None
+            for stored in connection.execute("SELECT * FROM contacts WHERE company_id=?", (company_id,)).fetchall():
+                preview = dict(stored)
+                for fact in connection.execute(
+                    "SELECT field_name,proposed_value FROM claims WHERE entity_type='contact' AND entity_id=? "
+                    "AND status IN ('proposed','accepted') ORDER BY CASE status WHEN 'accepted' THEN 0 ELSE 1 END,rowid",
+                    (stored["contact_id"],),
+                ):
+                    preview[fact["field_name"]] = fact["proposed_value"]
+                if (
+                    tuple(
+                        str(preview.get(k, "")).strip().casefold()
+                        for k in ("public_email", "linkedin_url", "full_name")
+                    )
+                    == route_key
+                ):
+                    existing_contact = stored
+                    break
+            contact_id = existing_contact["contact_id"] if existing_contact else new_id("ct")
+            if not existing_contact:
+                connection.execute(
+                    "INSERT INTO contacts VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (
+                        contact_id,
+                        company_id,
+                        "",
+                        "",
+                        "",
+                        str(contact.get("contact_role", "primary")),
+                        "",
+                        "",
+                        "unverified",
+                        "not_contacted",
+                        None,
+                        now,
+                        now,
+                    ),
+                )
+                changed += 1
             contact_evidence: list[str] = []
             for source in contact_sources:
                 outcome = str(source.get("outcome", "succeeded"))
@@ -543,6 +674,22 @@ def ingest_source_bundle(db: Database, run_id: str, bundle: dict[str, Any], requ
                 "public_email": str(contact.get("public_email", "")),
                 "identity_status": identity_status,
             }
+            route_grade = str(contact.get("route_grade", "R3"))
+            route_purpose = str(contact.get("route_purpose", "unknown"))
+            if route_grade not in {"R0", "R1", "R2", "R3"} or route_purpose not in {
+                "business",
+                "general",
+                "unknown",
+                "unsuitable",
+            }:
+                raise ValidationError("入口等级/用途无效")
+            if route_grade in {"R1", "R2"} and (
+                route_purpose != "business"
+                or not claim_fields["role_scope"]
+                or (route_grade == "R1" and not claim_fields["full_name"])
+            ):
+                raise ValidationError("R1/R2需要明确商务用途、职责；R1还需要公开姓名")
+            claim_fields.update(route_grade=route_grade, route_purpose=route_purpose)
             for field, value in claim_fields.items():
                 if value and contact_evidence:
                     _insert_claim(
@@ -551,27 +698,37 @@ def ingest_source_bundle(db: Database, run_id: str, bundle: dict[str, Any], requ
                         entity_id=contact_id,
                         field=field,
                         value=value,
-                        evidence_ids=contact_evidence,
+                        evidence_ids=_field_evidence(connection, contact, field, contact_evidence),
                         grade="primary" if identity_status == "verified" else "strong",
                     )
                     changed += 1
             if identity_status not in {"supported", "verified"}:
-                connection.execute(
-                    "INSERT INTO research_gaps VALUES (?,?,?,?,?,?,?,?,?)",
-                    (
-                        new_id("gap"),
-                        "company",
-                        company_id,
-                        "responsible_contact",
-                        str(contact.get("gap_note", "已搜索但未找到可核验负责人或公开转交入口")),
-                        1,
-                        "open",
-                        now,
-                        None,
-                    ),
-                )
-                changed += 1
-        if created_companies:
+                if not connection.execute(
+                    "SELECT 1 FROM research_gaps WHERE entity_type='contact' AND entity_id=? "
+                    "AND field_name='responsible_contact' AND status='open'",
+                    (contact_id,),
+                ).fetchone():
+                    connection.execute(
+                        "INSERT INTO research_gaps VALUES (?,?,?,?,?,?,?,?,?)",
+                        (
+                            new_id("gap"),
+                            "contact",
+                            contact_id,
+                            "responsible_contact",
+                            str(contact.get("gap_note", "已搜索但未找到可核验负责人或公开转交入口")),
+                            1,
+                            "open",
+                            now,
+                            None,
+                        ),
+                    )
+                    changed += 1
+        if connection.execute(
+            "SELECT 1 FROM claims WHERE status='proposed' AND ((entity_type='company' AND entity_id IN "
+            "(SELECT company_id FROM companies WHERE run_id=?)) OR (entity_type='contact' AND entity_id IN "
+            "(SELECT contact_id FROM contacts JOIN companies USING(company_id) WHERE run_id=?)))",
+            (run_id, run_id),
+        ).fetchone():
             connection.execute(
                 "UPDATE runs SET status='reviewing',next_action='awaiting_claim_review' WHERE run_id=?", (run_id,)
             )
@@ -609,13 +766,18 @@ def ingest_source_bundle(db: Database, run_id: str, bundle: dict[str, Any], requ
 
 
 def approve_run_claims(db: Database, run_id: str, actor: str, reason: str, request_id: str) -> dict[str, Any]:
+    with db.transaction():
+        return _approve_run_claims(db, run_id, actor, reason, request_id)
+
+
+def _approve_run_claims(db: Database, run_id: str, actor: str, reason: str, request_id: str) -> dict[str, Any]:
     if not actor.strip() or not reason.strip():
         raise ValidationError("批次审核必须提供真实审核人和理由")
     claims = db.query(
         "SELECT cl.claim_id FROM claims cl LEFT JOIN companies co ON cl.entity_type='company' AND cl.entity_id=co.company_id "
         "LEFT JOIN contacts ct ON cl.entity_type='contact' AND cl.entity_id=ct.contact_id "
         "LEFT JOIN companies cc ON ct.company_id=cc.company_id "
-        "WHERE cl.status='proposed' AND COALESCE(co.run_id,cc.run_id)=? ORDER BY cl.created_at",
+        "WHERE cl.status='proposed' AND COALESCE(co.run_id,cc.run_id)=? ORDER BY cl.created_at,cl.rowid",
         (run_id,),
     )
     if not claims:
@@ -651,6 +813,11 @@ def approve_run_claims(db: Database, run_id: str, actor: str, reason: str, reque
 
 
 def ingest_draft_bundle(db: Database, run_id: str, bundle: dict[str, Any], request_id: str) -> dict[str, Any]:
+    with db.transaction():
+        return _ingest_draft_bundle(db, run_id, bundle, request_id)
+
+
+def _ingest_draft_bundle(db: Database, run_id: str, bundle: dict[str, Any], request_id: str) -> dict[str, Any]:
     drafts = bundle.get("drafts")
     if not isinstance(drafts, list) or not drafts:
         raise ValidationError("draft bundle 必须包含 drafts")
@@ -662,30 +829,42 @@ def ingest_draft_bundle(db: Database, run_id: str, bundle: dict[str, Any], reque
         channel = str(draft.get("channel", ""))
         pair = (contact_id, channel)
         if not contact_id or channel not in {"email", "linkedin"} or pair in seen_pairs:
-            raise ValidationError("draft bundle 必须为每位联系人提供唯一的 Email 和 LinkedIn 草稿")
+            raise ValidationError("同一联系人及渠道只允许一份草稿，按实际入口选择渠道")
         seen_pairs.add(pair)
-        require_one_cta(str(draft.get("body", "")))
+        if not isinstance(draft.get("outreach_contract", {}), dict):
+            raise ValidationError("outreach_contract必须是对象")
+        require_one_cta(str(draft.get("body", "")), draft.get("outreach_contract", {}).get("primary_cta", ""))
         if not isinstance(draft.get("evidence_ids"), list) or not draft["evidence_ids"]:
             raise ValidationError("每条草稿必须引用 Evidence")
     created = []
     for index, draft in enumerate(drafts):
         existing = db.query(
-            "SELECT draft_id,body_hash FROM drafts WHERE run_id=? AND contact_id=? AND channel=? ORDER BY created_at DESC",
+            "SELECT * FROM drafts WHERE run_id=? AND contact_id=? AND channel=? ORDER BY created_at DESC",
             (run_id, draft["contact_id"], draft["channel"]),
         )
         if existing:
-            if existing[0]["body_hash"] != canonical_hash(str(draft["body"]).strip()):
+            current = existing[0]
+            changed = (
+                current["body"] != str(draft["body"]).strip()
+                or current["subject"] != str(draft.get("subject", ""))
+                or current["product_version"] != str(draft.get("product_version", ""))
+                or json.loads(current["evidence_ids"]) != draft["evidence_ids"]
+            )
+            stored = db.query("SELECT contract_json FROM draft_contracts WHERE draft_id=?", (current["draft_id"],))
+            supplied = draft.get("outreach_contract", {})
+            contract = json.loads(stored[0]["contract_json"]) if stored else {}
+            if changed or not stored or any(contract.get(k) != v for k, v in supplied.items()):
                 raise StateError("同一联系人和渠道已有不同草稿，请先人工处理旧草稿")
             created.append(existing[0]["draft_id"])
             continue
         result = create_draft(db, {**draft, "run_id": run_id}, f"{request_id}-{index + 1}")
         created.append(result["draft_id"])
     companies = db.query("SELECT COUNT(*) AS n FROM companies WHERE run_id=?", (run_id,))[0]["n"]
-    counts = db.query(
-        "SELECT channel,COUNT(*) AS n FROM drafts WHERE run_id=? AND status='review_ready' GROUP BY channel", (run_id,)
-    )
-    by_channel = {row["channel"]: row["n"] for row in counts}
-    complete = by_channel.get("email", 0) >= companies and by_channel.get("linkedin", 0) >= companies
+    ready_companies = db.query(
+        "SELECT COUNT(DISTINCT company_id) AS n FROM drafts WHERE run_id=? AND status IN ('review_ready','approved','sent')",
+        (run_id,),
+    )[0]["n"]
+    complete = companies > 0 and ready_companies == companies
     with db.transaction() as connection:
         connection.execute(
             "UPDATE runs SET status=?,next_action=? WHERE run_id=?",
@@ -731,17 +910,22 @@ def research_status(db: Database, run_id: str) -> dict[str, Any]:
     review = []
     for company in companies:
         cid = company["company_id"]
-        contacts = db.query("SELECT * FROM contacts WHERE company_id=?", (cid,))
+        contacts = db.query("SELECT * FROM contacts WHERE company_id=? ORDER BY rowid DESC", (cid,))
         evidence = db.query(
             "SELECT * FROM evidence WHERE (entity_type='company' AND entity_id=?) OR (entity_type='contact' AND entity_id IN (SELECT contact_id FROM contacts WHERE company_id=?))",
             (cid, cid),
         )
         claims = db.query(
             "SELECT cl.*,GROUP_CONCAT(ce.evidence_id) AS evidence_ids FROM claims cl LEFT JOIN claim_evidence ce ON ce.claim_id=cl.claim_id "
-            "WHERE (cl.entity_type='company' AND cl.entity_id=?) OR (cl.entity_type='contact' AND cl.entity_id IN (SELECT contact_id FROM contacts WHERE company_id=?)) GROUP BY cl.claim_id",
+            "WHERE (cl.entity_type='company' AND cl.entity_id=?) OR (cl.entity_type='contact' AND cl.entity_id IN (SELECT contact_id FROM contacts WHERE company_id=?)) GROUP BY cl.claim_id "
+            "ORDER BY CASE cl.status WHEN 'accepted' THEN 0 ELSE 1 END,cl.rowid",
             (cid, cid),
         )
-        gaps = db.query("SELECT * FROM research_gaps WHERE entity_type='company' AND entity_id=?", (cid,))
+        gaps = db.query(
+            "SELECT * FROM research_gaps WHERE (entity_type='company' AND entity_id=?) OR "
+            "(entity_type='contact' AND entity_id IN (SELECT contact_id FROM contacts WHERE company_id=?))",
+            (cid, cid),
+        )
         drafts = db.query(
             "SELECT * FROM drafts WHERE run_id=? AND company_id=? ORDER BY channel,created_at",
             (run_id, cid),
@@ -749,7 +933,7 @@ def research_status(db: Database, run_id: str) -> dict[str, Any]:
         company_preview = dict(company)
         company_claims = [row for row in claims if row["entity_type"] == "company"]
         for claim in company_claims:
-            if claim["status"] == "proposed":
+            if claim["status"] in {"proposed", "accepted"}:
                 company_preview[claim["field_name"]] = claim["proposed_value"]
         contact_previews = []
         for contact in contacts:
@@ -758,7 +942,7 @@ def research_status(db: Database, run_id: str) -> dict[str, Any]:
                 if (
                     claim["entity_type"] == "contact"
                     and claim["entity_id"] == contact["contact_id"]
-                    and claim["status"] == "proposed"
+                    and claim["status"] in {"proposed", "accepted"}
                 ):
                     preview[claim["field_name"]] = claim["proposed_value"]
             contact_previews.append(preview)
@@ -801,8 +985,159 @@ def research_status(db: Database, run_id: str) -> dict[str, Any]:
     }
 
 
-def verify_research_uat(db: Database, run_id: str, workbook: Path | None = None) -> dict[str, Any]:
+def verify_company_list(db: Database, run_id: str, workbook: Path | None = None) -> dict[str, Any]:
+    """研究名单的结构/证据门槛；不冒充人工产品判断或外联批准。"""
+    snapshot = research_status(db, run_id)
+    run = snapshot["run"]
+    target = int(run["target_count"])
+    failures, warnings = [], list(snapshot["coverage"]["warnings"])
+    seen, route_count = set(), 0
+    business_route_count = 0
+    group_units: dict[str, list[dict[str, Any]]] = {}
+    if len(snapshot["review"]) != target:
+        failures.append(f"公司数量应为{target}，实际{len(snapshot['review'])}；保持原目标")
+    for item in snapshot["review"]:
+        company = item["company_preview"]
+        name = company["name_original"]
+        group = str(company.get("group_key", "")).strip().casefold()
+        if group:
+            group_units.setdefault(group, []).append(company)
+        domain = root_domain(str(company.get("website", "")))
+        if not domain or domain in seen:
+            failures.append(f"{name}：官网缺失或公司重复")
+        seen.add(domain)
+        if company["country"] not in str(run["markets"]).split(","):
+            failures.append(f"{name}：不在批次市场")
+        if company["segment"] not in str(run["segments"]).split(","):
+            failures.append(f"{name}：不在批次客户类型")
+        try:
+            validate_company_fit_gates({**company, "name": name})
+        except ValidationError as exc:
+            failures.append(str(exc))
+        if not company["fit_reason"] or company["fit_status"] not in {"priority_chat", "chat_candidate"}:
+            failures.append(f"{name}：缺少可解释的业务匹配")
+        if not any(
+            e["entity_type"] == "company"
+            and e["purpose"] == "company_fit"
+            and e["access_status"] == "accessible"
+            and not e["conflicts"]
+            and e["source_level"] in {"primary", "secondary"}
+            for e in item["evidence"]
+        ):
+            failures.append(f"{name}：缺少可访问的公司核验证据")
+        if any(e["conflicts"] for e in item["evidence"]):
+            failures.append(f"{name}：有来源冲突，需先处理")
+        for evidence in item["evidence"]:
+            try:
+                observed = datetime.fromisoformat(evidence["observed_at"].replace("Z", "+00:00"))
+                if observed.tzinfo is None:
+                    observed = observed.replace(tzinfo=timezone.utc)
+                age = (datetime.now(timezone.utc) - observed).days
+                if age < -1:
+                    failures.append(f"{name}：来源观察日期在未来")
+                elif age > (30 if evidence["entity_type"] == "contact" else 90):
+                    warnings.append(f"{name}：旧来源待复核：{evidence['source_url']}")
+            except (TypeError, ValueError):
+                failures.append(f"{name}：来源观察日期无效")
+        if not any(c["selected_company_id"] == company["company_id"] for c in snapshot["candidates"]):
+            failures.append(f"{name}：缺少发现候选关联")
+        # A published contact page is useful even without a named person or an email.
+        route_contacts = {
+            e["entity_id"]
+            for e in item["evidence"]
+            if e["entity_type"] == "contact"
+            and e["purpose"] == "contact_route"
+            and e["access_status"] == "accessible"
+            and not e["conflicts"]
+            and str(e["source_url"]).startswith(("https://", "http://"))
+        }
+        usable_contacts = [
+            c
+            for c in item["contact_previews"]
+            if c["contact_id"] in route_contacts
+            and c.get("route_grade", "R3") != "R0"
+            and c.get("route_purpose", "unknown") != "unsuitable"
+            and c.get("identity_status") != "contradicted"
+        ]
+        route = bool(usable_contacts)
+        business_route_count += int(
+            any(c.get("route_grade") in {"R1", "R2"} and c.get("route_purpose") == "business" for c in usable_contacts)
+        )
+        with db.transaction() as connection:
+            for c in item["contact_previews"] or [{}]:
+                if active_stop_exists(
+                    connection,
+                    c.get("contact_id", ""),
+                    company["company_id"],
+                    preview_email=c.get("public_email", ""),
+                    preview_linkedin=c.get("linkedin_url", ""),
+                    preview_domain=domain,
+                ):
+                    failures.append(f"{name}：命中停止联系，不可作为本批可联系推荐")
+                    break
+        route_count += int(route)
+        if not route:
+            failures.append(f"{name}：对接入口待补查；保留公司，但名单交付尚未完成")
+        if item["gaps"]:
+            warnings.extend(f"{name}：{g['business_impact']}" for g in item["gaps"] if g["status"] == "open")
+            failures.extend(
+                f"{name}：关键公司缺口未解决：{g['business_impact']}"
+                for g in item["gaps"]
+                if g["status"] == "open" and g["blocking"] and g["entity_type"] == "company"
+            )
+    for group, members in group_units.items():
+        if len(members) > 1 and any(not m.get("independent_unit_reason") for m in members):
+            failures.append(f"集团{group}：多个品牌缺独立合作单元依据，不能重复计数")
+    if not workbook or not workbook.is_file():
+        failures.append("未提供存在的结果Excel")
+    else:
+        from openpyxl import load_workbook
+
+        from ..exporters.workbook import HEADERS
+
+        wb = load_workbook(workbook, read_only=True)
+        try:
+            if wb.sheetnames != ["客户结果"] or list(next(wb.active.values)) != HEADERS:
+                failures.append("Excel不符合单表7列合同")
+            else:
+                if any(
+                    wb.active.cell(i, 1).value for i in range(len(snapshot["review"]) + 2, len(snapshot["review"]) + 5)
+                ):
+                    failures.append("Excel公司区含多余记录")
+                actual = [wb.active.cell(i, 1).value for i in range(2, len(snapshot["review"]) + 2)]
+                expected = [r["company_preview"]["name_original"] for r in snapshot["review"]]
+                if sorted(str(v) for v in actual) != sorted(expected):
+                    failures.append("Excel公司与本批次不一致")
+        finally:
+            wb.close()
+    return {
+        "status": "succeeded" if not failures else "needs_review",
+        "passed": not failures,
+        "scope": "companies",
+        "run_id": run_id,
+        "target_count": target,
+        "company_count": len(snapshot["review"]),
+        "public_route_count": route_count,
+        "business_route_count": business_route_count,
+        "handoff_route_count": route_count - business_route_count,
+        "research_delivery_status": "ready_for_review" if not failures else "needs_research",
+        "product_match_status": "requires_business_review" if run["product_version"] else "product_not_provided",
+        "outreach_ready": False,
+        "proposed_claims": snapshot["stats"]["proposed_claims"],
+        "failures": failures,
+        "warnings": warnings,
+        "boundary": "仅名单结构及证据记录验收；网页语义、产品匹配和发送许可不能由本检查证明",
+    }
+
+
+def verify_research_uat(
+    db: Database, run_id: str, workbook: Path | None = None, *, scope: str = "outreach"
+) -> dict[str, Any]:
     """按真实纵向闭环验收，而不是只检查表中有没有记录。"""
+    if scope == "companies":
+        return verify_company_list(db, run_id, workbook)
+    if scope != "outreach":
+        raise ValidationError("无效验收范围")
     snapshot = research_status(db, run_id)
     run = snapshot["run"]
     stats = snapshot["stats"]
@@ -860,10 +1195,12 @@ def verify_research_uat(db: Database, run_id: str, workbook: Path | None = None)
         contact = contacts[0]
         if contact["identity_status"] not in {"supported", "verified"}:
             failures.append(f"{name}：联系人身份未达到 supported/verified")
-        if not str(contact["full_name"] or "").strip() or not str(contact["title"] or "").strip():
+        if contact["contact_role"] != "handoff" and (
+            not str(contact["full_name"] or "").strip() or not str(contact["title"] or "").strip()
+        ):
             failures.append(f"{name}：负责人姓名或职位缺失")
-        if not str(contact["linkedin_url"] or "").startswith(("http://", "https://")):
-            failures.append(f"{name}：缺少公开 LinkedIn 路由")
+        if not contact["public_email"] and not str(contact["linkedin_url"] or "").startswith(("http://", "https://")):
+            failures.append(f"{name}：缺少外联支持的邮箱/LinkedIn入口，官网表单不能替代发送渠道核验")
         contact_evidence = [row for row in item["evidence"] if row["entity_type"] == "contact"]
         if not contact_evidence:
             failures.append(f"{name}：负责人没有身份 Evidence")
@@ -878,25 +1215,33 @@ def verify_research_uat(db: Database, run_id: str, workbook: Path | None = None)
             required_company_fields |= set(_FIT_GATE_VALUES)
             if not required_company_fields.issubset(accepted_company_fields):
                 failures.append(f"{name}：公司正式字段没有全部经过 Claim 批准")
-            accepted_contact_fields = {row["field_name"] for row in accepted if row["entity_type"] == "contact"}
-            required_contact_fields = {"full_name", "title", "role_scope", "identity_status"}
+            accepted_contact_fields = {
+                row["field_name"]
+                for row in accepted
+                if row["entity_type"] == "contact" and row["entity_id"] == contact["contact_id"]
+            }
+            required_contact_fields = {"role_scope", "identity_status"}
+            if contact["contact_role"] != "handoff":
+                required_contact_fields |= {"full_name", "title"}
             if not required_contact_fields.issubset(accepted_contact_fields):
                 failures.append(f"{name}：负责人正式字段没有全部经过 Claim 批准")
         drafts = db.query(
-            "SELECT channel,body,evidence_ids,status FROM drafts WHERE run_id=? AND company_id=?",
+            "SELECT draft_id,contact_id,channel,body,evidence_ids,status FROM drafts WHERE run_id=? AND company_id=?",
             (run_id, company["company_id"]),
         )
         ready = {row["channel"]: row for row in drafts if row["status"] == "review_ready"}
-        if set(ready) != {"email", "linkedin"}:
-            failures.append(f"{name}：缺少可审核 Email 或 LinkedIn 草稿")
+        if not ready:
+            failures.append(f"{name}：缺少首选渠道可审核草稿")
         else:
-            email_body = ready["email"]["body"].strip()
-            linkedin_body = ready["linkedin"]["body"].strip()
-            if email_body == linkedin_body or len(linkedin_body.split()) >= len(email_body.split()):
+            if len(ready) == 2 and ready["email"]["body"].strip() == ready["linkedin"]["body"].strip():
                 failures.append(f"{name}：Email 与 LinkedIn 草稿没有体现渠道差异")
             for channel, draft in ready.items():
                 try:
-                    require_one_cta(draft["body"])
+                    contracts = db.query(
+                        "SELECT contract_json FROM draft_contracts WHERE draft_id=?", (draft["draft_id"],)
+                    )
+                    contract = json.loads(contracts[0]["contract_json"]) if contracts else {}
+                    require_one_cta(draft["body"], contract.get("primary_cta", ""))
                 except ValidationError:
                     failures.append(f"{name}：{channel} 草稿不是恰好一个 CTA")
                 try:
@@ -911,7 +1256,7 @@ def verify_research_uat(db: Database, run_id: str, workbook: Path | None = None)
                     f"SELECT COUNT(*) AS n FROM evidence WHERE evidence_id IN ({placeholders}) "
                     "AND ((entity_type='company' AND entity_id=?) OR "
                     "(entity_type='contact' AND entity_id=?))",
-                    (*evidence_ids, company["company_id"], contact["contact_id"]),
+                    (*evidence_ids, company["company_id"], draft["contact_id"]),
                 )[0]["n"]
                 if matched != len(set(evidence_ids)):
                     failures.append(f"{name}：{channel} 草稿 Evidence 不属于该公司或联系人")
@@ -924,24 +1269,20 @@ def verify_research_uat(db: Database, run_id: str, workbook: Path | None = None)
                 from openpyxl import load_workbook
 
                 opened = load_workbook(workbook, read_only=True, data_only=False)
-                if not opened.sheetnames or opened.sheetnames[0] != "LeadReview":
-                    failures.append("Excel 首页不是 LeadReview")
-                elif opened["LeadReview"].max_row < stats["companies"] + 1:
+                if opened.sheetnames != ["客户结果"]:
+                    failures.append("Excel 必须只有客户结果一张表")
+                elif opened["客户结果"].max_row < stats["companies"] + 1:
                     failures.append("Excel 首页公司行数不足")
                 else:
-                    headers = {cell.value for cell in opened["LeadReview"][1]}
+                    headers = {cell.value for cell in opened["客户结果"][1]}
                     required_headers = {
                         "公司",
-                        "官网",
-                        "资料状态",
-                        "优先级",
-                        "买方角色",
-                        "中国产品",
-                        "地接合作空间",
-                        "竞争关系",
-                        "联系人及渠道",
-                        "判断依据",
-                        "风险与下一步",
+                        "市场/客群",
+                        "为什么值得联系",
+                        "找谁",
+                        "联系入口",
+                        "开发信",
+                        "当前结果/下一步",
                     }
                     if not required_headers.issubset(headers):
                         failures.append("Excel 首页总览缺少业务审阅必需列")
@@ -953,6 +1294,7 @@ def verify_research_uat(db: Database, run_id: str, workbook: Path | None = None)
     return {
         "status": "succeeded" if not failures else "needs_review",
         "passed": not failures,
+        "scope": "outreach",
         "run_id": run_id,
         "stage": snapshot["stage"],
         "discovered_count": int(discovery or 0),
@@ -1005,7 +1347,10 @@ def run_research(
                 "必须打开来源页面后保存观察内容",
                 "官网优先；LinkedIn 仅使用无需登录的公开信息",
                 "不猜邮箱，受限和未找到必须明确记录",
-                "最终入选必须证明它是客源市场的出境销售方，并记录中国产品信号、外部地接合作路径和竞争关系",
+                "按direct/expansion/channel分别研究；买方需出境销售角色，渠道公司需真实客源/组织能力，不混充买方",
+                "扩展和渠道需客群依据、合作假设、反证及下一步；没有中国页面不伪填adjacent",
+                "新研究提供逐字段field_sources；contact提供route_grade与route_purpose，普通页面不等于商务负责人",
+                "达到数量后做高价值对照搜索再择优；集团多品牌需独立合作依据，不凑数",
                 "当地入境DMC、只做本国地接的公司和自营中国地接的一体化竞争者不能冒充潜在买方",
             ],
             "candidate_fields": [

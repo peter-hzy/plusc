@@ -29,4 +29,11 @@
 - [ACMA spam guidance](https://www.acma.gov.au/avoid-sending-spam)
 - [Canada CASL](https://ised-isde.canada.ca/site/canada-anti-spam-legislation/en/getting-consent-send-email)
 - [FTC CAN-SPAM guide](https://www.ftc.gov/business-guidance/resources/can-spam-act-compliance-guide)
+# 澳新触达依据与渠道
+
+公开业务邮箱、邮箱技术验证、职责相关和适用营销联系依据必须分别记录。澳大利亚参考ACMA，不能靠发送营销邮件来索取营销许可；新西兰公开地址的deemed consent须满足业务公开、未声明拒绝及消息与职责相关等条件。系统保存市场、依据类型、原始记录、审核理由、审核人和有效期，人工审核不能被模型虚构。
+
+参考：https://www.acma.gov.au/avoid-sending-spam 及 https://www.dia.govt.nz/Spam-Three-Steps 。进入新市场先核验当地规则。商业邮件带真实主体与联系方式、便捷停止联系入口。拒绝与退订即时停止，不换渠道规避。
+
+browser-use仅是可选执行工具；本项目不实现LinkedIn自动加人、抓取或私信。用户授权不等于平台允许，账号受限或验证码不绕过；技术可用性与平台许可分别核验。
 

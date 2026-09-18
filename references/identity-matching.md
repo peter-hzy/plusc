@@ -66,6 +66,12 @@ V1 尚无历史邮件时，从公司官网和公开职业资料开始。
 
 ## 6. 成本控制
 
+联系人优先按中国/亚洲产品、目的地、采购或合作职责选择，小型精品社才优先考虑有相应职责的Owner；不默认联系CEO。任职、职责、采购权、邮箱归属和可达性是不同事实。
+
+没有个人姓名但有官网合作入口时，可用contact_role=handoff记录部门/公司入口，不虚构个人姓名。姓名字段为空允许保留；不能把“Partnerships Team”当真人。
+
+草稿outreach_contract.recipient_kind只能由来源核验为person/department/company，缺依据为unknown；邮箱前缀不能证明个人归属。验证返回accept_all/unknown不升级为valid；API找到邮箱也不自动证明适用营销联系依据。
+
 同一联系人不要反复查询同一来源。记录：
 
 - 已经搜索过什么；

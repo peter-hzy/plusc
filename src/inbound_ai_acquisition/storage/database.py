@@ -192,8 +192,7 @@ def _migrate_v3_run_policy(connection: sqlite3.Connection) -> None:
     connection.execute("DROP INDEX IF EXISTS uq_company_domain")
     connection.execute("DROP INDEX IF EXISTS uq_active_entity_key")
     duplicates = connection.execute(
-        "SELECT run_id,root_domain FROM candidates WHERE root_domain<>'' "
-        "GROUP BY run_id,root_domain HAVING COUNT(*)>1"
+        "SELECT run_id,root_domain FROM candidates WHERE root_domain<>'' GROUP BY run_id,root_domain HAVING COUNT(*)>1"
     ).fetchall()
     for duplicate in duplicates:
         rows = connection.execute(
@@ -230,8 +229,7 @@ def _migrate_v3_run_policy(connection: sqlite3.Connection) -> None:
                 (selected_company_id, keeper["candidate_id"]),
             )
     connection.execute(
-        "CREATE UNIQUE INDEX IF NOT EXISTS uq_company_run_domain ON companies(run_id,root_domain) "
-        "WHERE root_domain<>''"
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_company_run_domain ON companies(run_id,root_domain) WHERE root_domain<>''"
     )
     connection.execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS uq_candidate_run_domain ON candidates(run_id,root_domain) "
@@ -246,6 +244,7 @@ def _migrate_v3_run_policy(connection: sqlite3.Connection) -> None:
 class Database:
     def __init__(self, path: Path):
         self.path = Path(path)
+        self._active_transaction: sqlite3.Connection | None = None
 
     def connect(self) -> sqlite3.Connection:
         if not self.path.parent.exists():
@@ -258,19 +257,32 @@ class Database:
 
     @contextmanager
     def transaction(self) -> Iterator[sqlite3.Connection]:
+        if self._active_transaction is not None:
+            yield self._active_transaction
+            return
         connection = self.connect()
         try:
             connection.execute("BEGIN IMMEDIATE")
+            self._active_transaction = connection
             yield connection
             connection.commit()
         except Exception:
             connection.rollback()
             raise
         finally:
+            self._active_transaction = None
             connection.close()
 
     def migrate(self) -> dict[str, Any]:
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        previous = self.schema_version()
+        if previous is not None and previous > SCHEMA_VERSION:
+            raise ValidationError("数据库版本高于当前程序，不能降级打开")
+        backup_path = None
+        if previous is not None and previous < SCHEMA_VERSION:
+            backup_path = self.path.with_name(f"{self.path.stem}.before-v{SCHEMA_VERSION}-{uuid.uuid4().hex[:8]}.db")
+            with closing(self.connect()) as source, closing(sqlite3.connect(backup_path)) as destination:
+                source.backup(destination)
         with closing(self.connect()) as connection:
             connection.executescript(INITIAL_SQL)
             now = utc_now()
@@ -282,6 +294,11 @@ class Database:
                     _backfill_v2_discovery(connection)
                 if int(current[0]) < 3:
                     _migrate_v3_run_policy(connection)
+                if int(current[0]) < 5:
+                    # Contacts are batch-company snapshots. Keep within-company uniqueness;
+                    # cross-batch history/stop checks still match normalized addresses/domains.
+                    connection.execute("DROP INDEX IF EXISTS uq_contact_linkedin")
+                    connection.execute("DROP INDEX IF EXISTS uq_contact_email")
                 connection.execute(
                     "UPDATE workspace_meta SET schema_version=?, project_version=?, last_migrated_at=? WHERE singleton=1",
                     (SCHEMA_VERSION, __version__, now),
@@ -293,7 +310,11 @@ class Database:
                     (SCHEMA_VERSION, __version__, new_id("ws"), now, now),
                 )
             connection.commit()
-        return {"schema_version": SCHEMA_VERSION, "database": str(self.path)}
+        return {
+            "schema_version": SCHEMA_VERSION,
+            "database": str(self.path),
+            "backup": str(backup_path) if backup_path else None,
+        }
 
     def schema_version(self) -> int | None:
         if not self.path.exists():
@@ -356,5 +377,7 @@ class Database:
         return event_id
 
     def query(self, sql: str, params: tuple[Any, ...] = ()) -> list[dict[str, Any]]:
+        if self._active_transaction is not None:
+            return [dict(row) for row in self._active_transaction.execute(sql, params).fetchall()]
         with closing(self.connect()) as connection:
             return [dict(row) for row in connection.execute(sql, params).fetchall()]

@@ -1,300 +1,215 @@
-"""使用 openpyxl 生成可人工审阅的 Excel。"""
+"""单表客户结果；完整草稿位于同表下方，审计数据只保留在数据库。"""
 
 from __future__ import annotations
 
-from contextlib import closing
+import json
+import re
 from pathlib import Path
 from typing import Any
 
-from ..application.discovery import discovery_coverage
-from ..errors import ValidationError
+from ..application.research import research_status
 from ..storage.database import Database
 
-BUSINESS_SHEET = "LeadReview"
-COVERAGE_SHEET = "DiscoveryCoverage"
+BUSINESS_SHEET = "客户结果"
+HEADERS = ["公司", "市场/客群", "为什么值得联系", "找谁", "联系入口", "开发信", "当前结果/下一步"]
 
 
-def _preview_claims(connection: Any, entity_type: str, entity_id: str, row: Any) -> tuple[dict[str, Any], str]:
-    """在审阅页展示待批值，但不把它们写成正式字段。"""
-    preview = dict(row)
-    claims = connection.execute(
-        "SELECT field_name,proposed_value,status FROM claims WHERE entity_type=? AND entity_id=? ORDER BY created_at",
-        (entity_type, entity_id),
-    ).fetchall()
-    for claim in claims:
-        if claim["status"] in {"proposed", "accepted"}:
-            preview[claim["field_name"]] = claim["proposed_value"]
-    statuses = {claim["status"] for claim in claims}
-    state = "待人工批准" if "proposed" in statuses else "已批准" if statuses == {"accepted"} else "部分已处理"
-    return preview, state
-
-
-def _route_kind(email: str, linkedin: str, contact_role: str = "primary") -> str:
+def _route_kind(email: str, linkedin: str, contact_role: str = "primary", recipient_kind: str = "unknown") -> str:
     if email:
-        local = email.split("@", 1)[0].lower()
-        generic_locals = {
-            "info", "sales", "support", "hello", "contact", "enquiries", "bookings",
-            "tailormade", "partnerships", "product", "trade", "groups",
-        }
-        if contact_role == "handoff" or local in generic_locals:
-            return "LinkedIn负责人 + 公开企业邮箱（非个人邮箱）" if linkedin else "公开企业邮箱（非个人邮箱）"
-        return "公开个人邮箱 + LinkedIn" if linkedin else "公开个人邮箱"
-    return "LinkedIn负责人" if linkedin else "公开转交入口"
+        return {"person": "个人业务邮箱", "department": "部门邮箱", "company": "公司邮箱"}.get(
+            recipient_kind, "企业转交邮箱" if contact_role == "handoff" else "邮箱归属待确认"
+        )
+    return "LinkedIn" if linkedin else "联系入口待研究"
 
 
-def _priority_label(status: str) -> str:
-    return {
-        "priority_chat": "A｜优先联系",
-        "chat_candidate": "B｜可以联系",
-        "nurture": "C｜长期培育",
-        "research_needed": "待继续研究",
-        "not_fit": "不适配",
-        "do_not_contact": "禁止联系",
-    }.get(status, status)
-
-
-def _fit_gate_label(field: str, value: str) -> str:
-    labels = {
-        "source_market_role": {
-            "outbound_seller": "确认：当地出境客源方",
-            "unclear": "待确认",
-            "not_source_market": "非客源方",
-        },
-        "china_product_signal": {"direct": "直接销售中国产品", "adjacent": "亚洲长线可适配", "none": "无相关产品"},
-        "ground_partner_route": {
-            "external_partner_possible": "有外部地接合作路径",
-            "unclear": "合作方式未知",
-            "in_house": "疑似自营地接",
-        },
-        "competitive_position": {
-            "potential_buyer": "潜在合作方",
-            "mixed": "合作与竞争并存",
-            "competitor": "同行竞争",
-            "unknown": "关系待确认",
-        },
-    }
-    return labels.get(field, {}).get(value, value or "待确认")
-
-
-SHEETS = {
-    "RunSummary": "runs",
-    "CandidatePool": "candidates",
-    "SourcePlan": "source_plan_entries",
-    "CandidateSources": "candidate_sources",
-    "Companies": "companies",
-    "Contacts": "contacts",
-    "Evidence": "evidence",
-    "Claims": "claims",
-    "ResearchGaps": "research_gaps",
-    "Drafts": "drafts",
-    "Approvals": "approvals",
-    "Replies": "replies",
-    "StopRules": "stop_rules",
-    "DuplicateReview": "duplicate_candidates",
-    "SourcePerformance": "source_runs",
-}
+def _safe(cell: Any, value: Any) -> None:
+    # 外部网页和邮件中的等号不得变成Excel公式。
+    cell.value = str(value or "")
+    cell.data_type = "s"
 
 
 def export_workbook(db: Database, output: Path, run_id: str | None = None) -> dict[str, Any]:
-    try:
-        from openpyxl import Workbook, load_workbook
-        from openpyxl.styles import Alignment, Font, PatternFill
-    except ImportError as exc:
-        raise ValidationError("缺少 Excel 依赖，请安装 pip install -e .[excel]") from exc
+    from openpyxl import Workbook, load_workbook
+    from openpyxl.styles import Alignment, Font, PatternFill
+    from openpyxl.worksheet.table import Table, TableStyleInfo
 
+    runs = [run_id] if run_id else [r["run_id"] for r in db.query("SELECT run_id FROM runs ORDER BY created_at")]
+    review = [item for rid in runs for item in research_status(db, rid)["review"]]
+    review.sort(
+        key=lambda item: (
+            item["company_preview"].get("competitive_position") == "mixed",
+            item["company_preview"].get("fit_status") != "priority_chat",
+            item["company_preview"]["name_original"].casefold(),
+        )
+    )
     workbook = Workbook()
-    workbook.remove(workbook.active)
-    with closing(db.connect()) as connection:
-        review_sheet = workbook.create_sheet(BUSINESS_SHEET)
-        review_headers = [
-            "优先级",
-            "公司",
-            "官网",
-            "资料状态",
-            "买方角色",
-            "中国产品",
-            "地接合作空间",
-            "竞争关系",
-            "联系人及渠道",
-            "判断依据",
-            "风险与下一步",
+    sheet = workbook.active
+    sheet.title = BUSINESS_SHEET
+    sheet.append(HEADERS)
+    sheet.freeze_panes = "B2"
+    sheet.sheet_view.showGridLines = False
+    widths = [26, 23, 48, 30, 38, 16, 42]
+    for i, width in enumerate(widths, 1):
+        sheet.column_dimensions[sheet.cell(1, i).column_letter].width = width
+    for cell in sheet[1]:
+        cell.fill = PatternFill("solid", fgColor="1F4E78")
+        cell.font = Font(bold=True, color="FFFFFF", size=11)
+    detail_row = len(review) + 5
+    statuses = {
+        "review_ready": "待审核",
+        "approved": "已批准，待执行",
+        "sent": "已记录发送",
+        "stopped": "停止联系",
+        "draft": "待完善",
+    }
+    for index, item in enumerate(review, 2):
+        company = item["company_preview"]
+        contacts = {r["contact_id"]: r for r in item["contact_previews"]}
+        drafts = item["drafts"]
+        contact = contacts.get(drafts[-1]["contact_id"]) if drafts else None
+        contact = contact or next(iter(contacts.values()), {})
+        contract = {}
+        if drafts:
+            rows = db.query("SELECT contract_json FROM draft_contracts WHERE draft_id=?", (drafts[-1]["draft_id"],))
+            contract = json.loads(rows[0]["contract_json"]) if rows else {}
+        role = contact.get("contact_role", "")
+        email, linkedin = contact.get("public_email", ""), contact.get("linkedin_url", "")
+        contact_page = next(
+            (
+                e["source_url"]
+                for e in item["evidence"]
+                if e["entity_type"] == "contact"
+                and e["entity_id"] == contact.get("contact_id")
+                and e["purpose"] == "contact_route"
+                and e["access_status"] == "accessible"
+                and not e["conflicts"]
+                and re.match(r"^https?://", e["source_url"])
+            ),
+            "",
+        )
+        kind = _route_kind(email, linkedin, role, contract.get("recipient_kind", "unknown"))
+        recipient = contract.get("recipient") or email or linkedin
+        if not recipient and contact_page:
+            kind = "官网联系页（转交路径待确认）"
+        route = (recipient or contact_page or "未找到") + "\n" + kind
+        route += "\n" + {
+            "R1": "具名职责入口（以审核状态为准）", "R2": "部门职责入口（以审核状态为准）",
+            "R3": "通用转交，商务用途待确认", "R0": "入口缺失",
+        }.get(contact.get("route_grade", "R3"), "入口待核验")
+        if contact.get("route_purpose") == "unsuitable":
+            route += "；不适合本次业务联系"
+        if role == "handoff":
+            who = contact.get("role_scope") or "部门/公司转交入口"
+        else:
+            who = " / ".join(str(contact.get(k, "")) for k in ("full_name", "title")).strip(" /") or "负责人待研究"
+        state = item["decision_state"]
+        if drafts:
+            state += "；" + " / ".join(dict.fromkeys(statuses.get(d["status"], d["status"]) for d in drafts))
+        else:
+            state += "；" + ("核准产品匹配；需触达时再准备文案" if email or linkedin else "核实企业转交路径")
+        if (email or linkedin) and contract.get("recipient_kind", "unknown") == "unknown":
+            state += "；" + ("收件职责待确认" if role == "handoff" else "地址归属未确认")
+        if drafts and not contract.get("consent"):
+            state += "；触达依据待审核"
+        if drafts and not contract.get("product_approved_by"):
+            state += "；我方产品能力待批准"
+        gaps = [g["business_impact"] for g in item["gaps"] if g["status"] == "open"]
+        if gaps:
+            state += "；" + "；".join(gaps)
+        if company.get("risk_notes"):
+            state += "；" + company["risk_notes"]
+        if company.get("next_action"):
+            state += "；" + company["next_action"]
+        reason = company["fit_reason"]
+        if company.get("qualification_path") in {"expansion", "channel"}:
+            reason = ("扩展假设" if company["qualification_path"] == "expansion" else "渠道合作假设") + "：" + reason
+        if company.get("cooperation_hypothesis"):
+            reason += "\n合作假设：" + company["cooperation_hypothesis"]
+        if company.get("counter_evidence"):
+            reason += "\n限制：" + company["counter_evidence"]
+        values = [
+            company["name_original"],
+            f"{ {'AU': '澳洲', 'NZ': '新西兰'}.get(company['country'], company['country']) } / "
+            + {
+                "travel_agency": "旅行社",
+                "tour_operator": "旅游运营商",
+                "dmc": "目的地管理公司",
+                "mice": "会奖旅游",
+            }.get(company["segment"], company["segment"]),
+            reason,
+            who,
+            route,
+            "查看文案" if drafts else "尚未准备",
+            state,
         ]
-        review_sheet.append(review_headers)
-        company_rows = connection.execute(
-            "SELECT c.* FROM companies c "
-            "LEFT JOIN claims priority_claim ON priority_claim.entity_type='company' "
-            "AND priority_claim.entity_id=c.company_id AND priority_claim.field_name='fit_status' "
-            "AND priority_claim.status='proposed' "
-            + ("WHERE c.run_id=? " if run_id else "")
-            + "ORDER BY CASE COALESCE(priority_claim.proposed_value,c.fit_status) "
-            "WHEN 'priority_chat' THEN 0 WHEN 'chat_candidate' THEN 1 WHEN 'nurture' THEN 2 "
-            "WHEN 'research_needed' THEN 3 WHEN 'not_fit' THEN 4 WHEN 'do_not_contact' THEN 5 ELSE 6 END, "
-            "c.name_original",
-            (run_id,) if run_id else (),
-        ).fetchall()
-        for company in company_rows:
-            company_view, decision_state = _preview_claims(connection, "company", company["company_id"], company)
-            contact_row = connection.execute(
-                "SELECT * FROM contacts WHERE company_id=? ORDER BY CASE contact_role WHEN 'primary' THEN 0 WHEN 'handoff' THEN 1 ELSE 2 END LIMIT 1",
-                (company["company_id"],),
-            ).fetchone()
-            contact = None
-            if contact_row:
-                contact, contact_state = _preview_claims(connection, "contact", contact_row["contact_id"], contact_row)
-                if contact_state == "待人工批准":
-                    decision_state = "待人工批准"
-            gaps = connection.execute(
-                "SELECT field_name,business_impact FROM research_gaps WHERE entity_type='company' AND entity_id=? AND status='open'",
-                (company["company_id"],),
-            ).fetchall()
-            drafts = connection.execute(
-                "SELECT channel,subject,body,status FROM drafts WHERE company_id=? ORDER BY channel",
-                (company["company_id"],),
-            ).fetchall()
-            draft_by_channel = {row["channel"]: row for row in drafts}
-            gap_text = "\n".join(f"{row['field_name']}: {row['business_impact']}" for row in gaps) or "无阻塞缺口"
-            email_draft = draft_by_channel.get("email")
-            linkedin_draft = draft_by_channel.get("linkedin")
-            next_step = (
-                "先审核并批准资料"
-                if decision_state == "待人工批准"
-                else "人工审核两条草稿"
-                if email_draft and linkedin_draft
-                else "生成 Email 和 LinkedIn 草稿"
-                if contact
-                else "继续负责人研究"
-            )
-            review_sheet.append(
-                [
-                    _priority_label(company_view["fit_status"]),
-                    company_view["name_original"],
-                    company_view["website"],
-                    decision_state,
-                    _fit_gate_label("source_market_role", company_view.get("source_market_role", "")),
-                    _fit_gate_label("china_product_signal", company_view.get("china_product_signal", "")),
-                    _fit_gate_label("ground_partner_route", company_view.get("ground_partner_route", "")),
-                    _fit_gate_label("competitive_position", company_view.get("competitive_position", "")),
-                    (
-                        f"{contact['full_name']} / {contact['title']}\n"
-                        f"{_route_kind(contact['public_email'], contact['linkedin_url'], contact['contact_role'])}\n"
-                        f"{contact['public_email']}\n{contact['linkedin_url']}"
-                        if contact
-                        else ""
-                    ),
-                    company_view["fit_reason"],
-                    f"风险：{company_view['risk_notes'] or '未记录'}\n缺口：{gap_text}\n下一步：{next_step}",
-                ]
-            )
-        review_sheet.freeze_panes = "B2"
-        review_sheet.auto_filter.ref = f"A1:K{len(company_rows) + 1}"
-        review_sheet.sheet_view.showGridLines = False
-        review_sheet.page_setup.orientation = "landscape"
-        review_sheet.page_setup.fitToWidth = 1
-        review_sheet.page_setup.fitToHeight = 0
-        review_sheet.row_dimensions[1].height = 34
-        widths = [15, 23, 29, 15, 20, 18, 22, 18, 38, 48, 46]
-        for index, width in enumerate(widths, 1):
-            review_sheet.column_dimensions[review_sheet.cell(1, index).column_letter].width = width
-        for cell in review_sheet[1]:
-            cell.font = Font(bold=True, color="FFFFFF")
-            cell.fill = PatternFill("solid", fgColor="1F4E78")
-            cell.alignment = Alignment(horizontal="center", vertical="center")
-        for row in review_sheet.iter_rows(min_row=2, max_row=len(company_rows) + 1):
-            for cell in row:
-                cell.alignment = Alignment(vertical="top", wrap_text=True)
-            review_sheet.row_dimensions[row[0].row].height = 115
-            if row[3].value == "待人工批准":
-                row[3].fill = PatternFill("solid", fgColor="FFF2CC")
-            priority_colors = {
-                "A｜优先联系": "E2F0D9",
-                "B｜可以联系": "FFF2CC",
-                "C｜长期培育": "D9EAF7",
-            }
-            if row[0].value in priority_colors:
-                row[0].fill = PatternFill("solid", fgColor=priority_colors[row[0].value])
-            for column in (3,):
-                cell = row[column - 1]
-                if isinstance(cell.value, str) and cell.value.startswith(("http://", "https://")):
-                    cell.hyperlink = cell.value
-                    cell.style = "Hyperlink"
-                    cell.alignment = Alignment(vertical="top", wrap_text=True)
-        if run_id:
-            coverage = discovery_coverage(db, run_id)
-            coverage_sheet = workbook.create_sheet(COVERAGE_SHEET)
-            coverage_sheet.append(["指标", "结果", "说明"])
-            policy = coverage["policy"]
-            coverage_sheet.append(
-                ["正式目标", coverage["target_count"], f"本批次正式基线为{policy['production_min_target']}家"]
-            )
-            coverage_sheet.append(["候选公司", coverage["candidate_count"], "包含未入选候选"])
-            coverage_sheet.append(["已选公司", coverage["selected_count"], "不代表已经证明采购意愿"])
-            coverage_sheet.append(
-                ["建议候选池", coverage["recommended_pool"], f"本批次为目标的{policy['candidate_pool_multiplier']:g}倍"]
-            )
-            coverage_sheet.append(
-                ["来源类别", coverage["source_category_count"], f"本批次基线为{policy['min_source_categories']}类"]
-            )
-            coverage_sheet.append(
-                ["正式批次可结束", "是" if coverage["production_ready"] else "否", "不使用客户类型硬配额"]
-            )
-            coverage_sheet.append([])
-            coverage_sheet.append(["补搜提醒", "", ""])
-            for warning in coverage["warnings"]:
-                coverage_sheet.append([warning, "", ""])
-            coverage_sheet.append([])
-            coverage_sheet.append(["来源类别", "候选", "独有", "重叠", "入选", "来源运行"])
-            for item in coverage["source_performance"]:
-                coverage_sheet.append(
-                    [
-                        item["source_category"],
-                        item["candidates"],
-                        item["unique_candidates"],
-                        item["overlap_candidates"],
-                        item["selected"],
-                        item["source_runs"],
-                    ]
+        for col, value in enumerate(values, 1):
+            _safe(sheet.cell(index, col), value)
+        contact_link = ("mailto:" + email) if email else linkedin or contact_page
+        if contact_link:
+            sheet.cell(index, 5).hyperlink = contact_link
+            sheet.cell(index, 5).font = Font(color="0563C1", underline="single")
+        url = company.get("website", "")
+        if re.match(r"^https?://", url):
+            sheet.cell(index, 1).hyperlink = url
+            sheet.cell(index, 1).font = Font(color="0563C1", underline="single")
+        sheet.row_dimensions[index].height = min(
+            409,
+            max(
+                56,
+                max(
+                    sum(
+                        max(1, (sum(2 if ord(c) > 255 else 1 for c in line) + int(width) - 1) // int(width))
+                        for line in str(value).split("\n")
+                    )
+                    for value, width in zip(values, widths, strict=True)
                 )
-            coverage_sheet.freeze_panes = "A2"
-            coverage_sheet.column_dimensions["A"].width = 72
-            for column in ("B", "C", "D", "E", "F"):
-                coverage_sheet.column_dimensions[column].width = 18
-            for cell in coverage_sheet[1]:
-                cell.font = Font(bold=True, color="FFFFFF")
-                cell.fill = PatternFill("solid", fgColor="1F4E78")
-            for row in coverage_sheet.iter_rows():
-                for cell in row:
-                    cell.alignment = Alignment(vertical="top", wrap_text=True)
-        for sheet_name, table in SHEETS.items():
-            sheet = workbook.create_sheet(sheet_name)
-            columns = [row[1] for row in connection.execute(f"PRAGMA table_info({table})")]
-            sheet.append(columns)
-            run_filter = run_id and "run_id" in columns
-            rows = connection.execute(
-                f"SELECT * FROM {table}" + (" WHERE run_id=?" if run_filter else ""),
-                (run_id,) if run_filter else (),
-            ).fetchall()
-            for row in rows:
-                sheet.append([row[column] for column in columns])
-            sheet.freeze_panes = "A2"
-            sheet.auto_filter.ref = sheet.dimensions
-            for cell in sheet[1]:
-                cell.font = Font(bold=True, color="FFFFFF")
-                cell.fill = PatternFill("solid", fgColor="1F4E78")
-                cell.alignment = Alignment(vertical="center")
-            for column_cells in sheet.columns:
-                values = [str(cell.value or "") for cell in list(column_cells)[:200]]
-                width = min(60, max(10, max(map(len, values), default=10) + 2))
-                sheet.column_dimensions[column_cells[0].column_letter].width = width
-                for cell in column_cells[1:]:
-                    cell.alignment = Alignment(vertical="top", wrap_text=True)
-                    if isinstance(cell.value, str) and cell.value.startswith(("http://", "https://")):
-                        cell.hyperlink = cell.value
-                        cell.style = "Hyperlink"
+                * 16,
+            ),
+        )
+        if drafts:
+            # 使用固定客户ID命名区域；主表排序时链接随单元格保留。
+            anchor = detail_row
+            sheet.cell(index, 6).hyperlink = f"#'{BUSINESS_SHEET}'!A{anchor}"
+            sheet.cell(index, 6).font = Font(color="0563C1", underline="single")
+            for draft in drafts:
+                dr_contract = db.query(
+                    "SELECT contract_json FROM draft_contracts WHERE draft_id=?", (draft["draft_id"],)
+                )
+                metadata = json.loads(dr_contract[0]["contract_json"]) if dr_contract else {}
+                fields = [
+                    ("客户", company["name_original"] + " / " + company["company_id"]),
+                    ("渠道/收件人", draft["channel"] + " / " + metadata.get("recipient", "未确认")),
+                    ("主题", draft["subject"]),
+                ]
+                # 分行呈现长邮件，避免Excel单行高度上限造成截断。
+                fields += [("正文" if n == 0 else "", part) for n, part in enumerate(draft["body"].splitlines())]
+                fields += [("状态", statuses.get(draft["status"], draft["status"])), ("返回名单", "返回客户列表")]
+                for label, value in fields:
+                    _safe(sheet.cell(detail_row, 1), label)
+                    sheet.merge_cells(start_row=detail_row, start_column=2, end_row=detail_row, end_column=7)
+                    _safe(sheet.cell(detail_row, 2), value)
+                    sheet.row_dimensions[detail_row].height = max(25, (len(str(value)) // 130 + 1) * 18)
+                    if label == "返回名单":
+                        sheet.cell(detail_row, 2).hyperlink = f"#'{BUSINESS_SHEET}'!A1"
+                    detail_row += 1
+                detail_row += 2
+    end = len(review) + 1
+    if review:
+        table = Table(displayName="CustomerResults", ref=f"A1:G{end}")
+        table.tableStyleInfo = TableStyleInfo(name="TableStyleMedium2", showRowStripes=True)
+        sheet.add_table(table)
+    sheet.auto_filter.ref = f"A1:G{max(1, end)}"
+    for row in sheet:
+        for cell in row:
+            cell.alignment = Alignment(vertical="top", wrap_text=True)
+    sheet.page_setup.orientation = "landscape"
+    sheet.page_setup.paperSize = sheet.PAPERSIZE_A3
+    sheet.page_setup.fitToWidth = 1
+    sheet.page_setup.fitToHeight = 0
     output.parent.mkdir(parents=True, exist_ok=True)
     workbook.save(output)
-    reopened = load_workbook(output, read_only=True, data_only=False)
-    expected_sheets = set(SHEETS) | {BUSINESS_SHEET} | ({COVERAGE_SHEET} if run_id else set())
-    if set(reopened.sheetnames) != expected_sheets:
-        raise ValidationError("Excel 回读验证失败：工作表不完整")
+    reopened = load_workbook(output, read_only=True)
+    if reopened.sheetnames != [BUSINESS_SHEET] or reopened.active.max_column != 7:
+        raise ValueError("Excel回读结构不符合单表7列合同")
     reopened.close()
-    return {"status": "succeeded", "output": str(output), "sheets": len(expected_sheets)}
+    return {"status": "succeeded", "output": str(output), "sheets": 1, "companies": len(review)}

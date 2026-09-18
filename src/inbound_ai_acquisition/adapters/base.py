@@ -14,7 +14,7 @@ class SourceResult:
     observations: list[dict[str, Any]] = field(default_factory=list)
     error_code: str = ""
     retryable: bool = False
-    cost_amount: float = 0.0
+    cost_amount: float | None = None
 
 
 class SourceAdapter(Protocol):

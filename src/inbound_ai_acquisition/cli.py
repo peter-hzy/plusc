@@ -109,6 +109,7 @@ def build_parser() -> argparse.ArgumentParser:
     run_create.add_argument("--market", required=True)
     run_create.add_argument("--segments", required=True)
     run_create.add_argument("--target", type=int, default=20)
+    run_create.add_argument("--research-only", action="store_true", help="产品未提供时仅研究公司，不伪造产品或准备发送")
     run_create.add_argument("--candidate-pool-multiplier", type=float, default=3.0)
     run_create.add_argument("--min-source-categories", type=int, default=3)
     run_create.add_argument("--production-min-target", type=int, default=20)
@@ -140,6 +141,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_workspace(research_verify)
     research_verify.add_argument("--run", required=True)
     research_verify.add_argument("--workbook")
+    research_verify.add_argument("--scope", choices=("companies", "outreach"), default="outreach")
 
     imports = commands.add_parser("import").add_subparsers(dest="import_command", required=True)
     for name in ("companies", "contacts", "evidence", "legacy", "review"):
@@ -151,9 +153,13 @@ def build_parser() -> argparse.ArgumentParser:
             item.add_argument("--run", required=True)
 
     source = commands.add_parser("source").add_subparsers(dest="source_command", required=True)
-    for name in ("list", "status", "record"):
+    for name in ("list", "status", "record", "execute"):
         item = source.add_parser(name)
         add_workspace(item)
+        if name == "execute":
+            item.add_argument("--adapter", choices=tuple(built_in_adapters()), required=True)
+            item.add_argument("--operation", choices=("discover", "inspect_company", "inspect_contact"), required=True)
+            item.add_argument("--file", required=True)
         if name == "status":
             item.add_argument("--run")
         if name == "record":
@@ -272,8 +278,9 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _context_validate(workspace: Workspace, db: Database) -> dict[str, Any]:
-    required = ("config.toml", "product-profile.md", "voice-profile.md")
+def _context_validate(workspace: Workspace, db: Database, *, product_only: bool = False) -> dict[str, Any]:
+    profiles = ("product-profile.md",) if product_only else ("product-profile.md", "voice-profile.md")
+    required = ("config.toml", *profiles)
     missing = [name for name in required if not (workspace.root / name).exists()]
     placeholders = []
     profile_gaps: dict[str, list[str]] = {}
@@ -281,7 +288,7 @@ def _context_validate(workspace: Workspace, db: Database) -> dict[str, Any]:
         "product-profile.md": ("版本：", "- 可接待目的地：", "- 可提供服务：", "- 语言："),
         "voice-profile.md": ("版本：", "- 希望像谁在说话："),
     }
-    for name in ("product-profile.md", "voice-profile.md"):
+    for name in profiles:
         path = workspace.root / name
         if path.exists():
             content = path.read_text(encoding="utf-8")
@@ -343,7 +350,7 @@ def _doctor(workspace_path: str | None) -> dict[str, Any]:
         "excel_available": excel,
         "optional_api_keys": {
             key: "configured" if os.environ.get(key) else "not_configured"
-            for key in ("APOLLO_API_KEY", "EMAIL_VERIFICATION_API_KEY", "SEARCH_API_KEY")
+            for key in ("APOLLO_API_KEY", "HUNTER_API_KEY", "BRAVE_SEARCH_API_KEY")
         },
     }
     if workspace_path:
@@ -444,7 +451,18 @@ def _skill_status(path_override: str | None) -> dict[str, Any]:
         for key in set(source_manifest) | set(target_manifest)
         if source_manifest.get(key) != target_manifest.get(key)
     )
-    return {"status": "succeeded", "target": str(target), "in_sync": not changed, "changed_files": changed}
+    unexpected = sorted(
+        p.relative_to(target).as_posix()
+        for p in target.rglob("*")
+        if p.is_file() and "__pycache__" not in p.parts and p.relative_to(target).as_posix() not in source_manifest
+    )
+    return {
+        "status": "succeeded",
+        "target": str(target),
+        "in_sync": not changed and not unexpected,
+        "changed_files": changed,
+        "unexpected_files": unexpected,
+    }
 
 
 def _skill_install(path_override: str | None, replace: bool) -> dict[str, Any]:
@@ -452,17 +470,41 @@ def _skill_install(path_override: str | None, replace: bool) -> dict[str, Any]:
     before = _skill_status(path_override)
     if target.exists() and not replace and not before.get("in_sync"):
         return {**before, "status": "needs_review", "message": "安装版不同；加 --replace 才会覆盖"}
-    target.mkdir(parents=True, exist_ok=True)
+    if before.get("in_sync"):
+        return {**before, "backup": None}
+    if target.is_symlink() or target.resolve().parent != target.parent.resolve():
+        raise ValidationError("安装目标不是预期的独立Skill目录")
+    # 先完整构建暂存包；复制失败时现有安装不变。
+    target.parent.mkdir(parents=True, exist_ok=True)
+    staging = target.parent / f".inbound-acquisition-stage-{uuid.uuid4().hex[:12]}"
+    staging.mkdir()
     for relative in (Path("SKILL.md"), Path("agents/openai.yaml")):
-        destination = target / relative
+        destination = staging / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source / relative, destination)
     for folder in ("references", "templates"):
-        destination = target / folder
-        if destination.exists() and replace:
-            shutil.rmtree(destination)
-        shutil.copytree(source / folder, destination, dirs_exist_ok=True)
-    return {"status": "succeeded", "target": str(target), "in_sync": _skill_status(path_override)["in_sync"]}
+        shutil.copytree(source / folder, staging / folder)
+    backup = None
+    if target.exists() and replace and not before.get("in_sync"):
+        # 整包移至同级不可发现的备份目录，保留未知文件，避免旧脚本混入新入口。
+        backup_root = target.parent / ".inbound-acquisition-backups"
+        backup_root.mkdir(exist_ok=True)
+        backup = backup_root / f"{target.name}-{uuid.uuid4().hex[:12]}"
+        if target.is_symlink() or target.resolve().parent != target.parent.resolve():
+            raise ValidationError("安装目标不是预期的独立Skill目录")
+        target.rename(backup)
+    try:
+        staging.rename(target)
+    except OSError:
+        if backup and not target.exists():
+            backup.rename(target)
+        raise
+    return {
+        "status": "succeeded",
+        "target": str(target),
+        "backup": str(backup) if backup else None,
+        "in_sync": _skill_status(path_override)["in_sync"],
+    }
 
 
 def dispatch(args: argparse.Namespace) -> Any:
@@ -503,9 +545,9 @@ def dispatch(args: argparse.Namespace) -> Any:
         return _context_validate(workspace, db)
     if command == "run":
         if args.run_command == "create":
-            context_status = _context_validate(workspace, db)
-            if context_status["status"] != "succeeded":
-                raise ValidationError(f"产品或话术资料尚未完成：{context_status['profile_gaps']}")
+            context_status = _context_validate(workspace, db, product_only=True)
+            if context_status["status"] != "succeeded" and not args.research_only:
+                raise ValidationError(f"产品资料尚未完成：{context_status['profile_gaps']}")
             return create_run(
                 db,
                 markets=[x.strip() for x in args.market.split(",") if x.strip()],
@@ -513,8 +555,8 @@ def dispatch(args: argparse.Namespace) -> Any:
                 target=args.target,
                 request_id=rid,
                 idempotency_key=args.idempotency_key or rid,
-                product_version=_profile_version(workspace.root / "product-profile.md"),
-                voice_version=_profile_version(workspace.root / "voice-profile.md"),
+                product_version="" if args.research_only else _profile_version(workspace.root / "product-profile.md"),
+                voice_version="" if args.research_only else _profile_version(workspace.root / "voice-profile.md"),
                 candidate_pool_multiplier=args.candidate_pool_multiplier,
                 min_source_categories=args.min_source_categories,
                 production_min_target=args.production_min_target,
@@ -532,6 +574,7 @@ def dispatch(args: argparse.Namespace) -> Any:
                 db,
                 args.run,
                 Path(args.workbook).resolve() if args.workbook else None,
+                scope=args.scope,
             )
         return run_research(
             db,
@@ -559,7 +602,25 @@ def dispatch(args: argparse.Namespace) -> Any:
         }
     if command == "source":
         if args.source_command == "list":
-            return {"status": "succeeded", "adapters": sorted(built_in_adapters())}
+            adapters = built_in_adapters()
+            return {
+                "status": "succeeded",
+                "adapters": sorted(adapters),
+                "capabilities": [
+                    a.status()
+                    if hasattr(a, "status")
+                    else {"adapter_id": a.adapter_id, "capabilities": sorted(a.capabilities)}
+                    for a in adapters.values()
+                ],
+            }
+        if args.source_command == "execute":
+            from dataclasses import asdict
+
+            adapter = built_in_adapters()[args.adapter]
+            request = json.loads(Path(args.file).read_text(encoding="utf-8"))
+            if not isinstance(request, dict):
+                raise ValidationError("来源请求必须是JSON对象")
+            return asdict(getattr(adapter, args.operation)(request))
         if args.source_command == "record":
             return record_source_result(
                 db, json.loads(Path(args.file).read_text(encoding="utf-8")), args.idempotency_key, rid

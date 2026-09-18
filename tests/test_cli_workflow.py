@@ -33,7 +33,7 @@ from inbound_ai_acquisition.cli import _context_validate, _init_workspace, _skil
 from inbound_ai_acquisition.config import Workspace
 from inbound_ai_acquisition.domain.policies import require_one_cta
 from inbound_ai_acquisition.errors import StateError, ValidationError
-from inbound_ai_acquisition.exporters.workbook import BUSINESS_SHEET, COVERAGE_SHEET, SHEETS, export_workbook
+from inbound_ai_acquisition.exporters.workbook import BUSINESS_SHEET, HEADERS, export_workbook
 from inbound_ai_acquisition.storage.database import Database, utc_now
 
 
@@ -63,6 +63,8 @@ class CliWorkflowTests(unittest.TestCase):
         return path
 
     def seed_company_contact_claim(self):
+        with self.db.transaction() as connection:
+            connection.execute("UPDATE runs SET product_version='test-v1' WHERE run_id=?", (self.run,))
         company_file = self.write_json(
             "companies.json",
             [
@@ -85,6 +87,7 @@ class CliWorkflowTests(unittest.TestCase):
                     "company_id": "co_demo",
                     "full_name": "Alex Example",
                     "title": "Product Manager",
+                    "public_email": "alex@example.test",
                     "linkedin_url": "https://linkedin.com/in/alex-example",
                     "identity_status": "supported",
                     "identity_evidence_url": "https://example.test/team",
@@ -128,6 +131,31 @@ class CliWorkflowTests(unittest.TestCase):
                 ),
             )
             connection.execute("INSERT INTO claim_evidence VALUES (?,?)", ("cl_demo", "ev_demo"))
+            for field, value in {
+                "source_market_role": "outbound_seller",
+                "china_product_signal": "direct",
+                "ground_partner_route": "external_partner_possible",
+                "competitive_position": "potential_buyer",
+            }.items():
+                connection.execute(
+                    "INSERT INTO claims VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (
+                        "cl_" + field,
+                        "company",
+                        "co_demo",
+                        field,
+                        value,
+                        "accepted",
+                        "strong",
+                        "",
+                        "test human",
+                        utc_now(),
+                        "isolated fixture",
+                        None,
+                        utc_now(),
+                    ),
+                )
+                connection.execute("INSERT INTO claim_evidence VALUES (?,?)", ("cl_" + field, "ev_demo"))
 
     def test_run_create_is_idempotent(self):
         second = create_run(
@@ -198,6 +226,22 @@ class CliWorkflowTests(unittest.TestCase):
                 "subject": "China ground support",
                 "body": "Hi Alex, I noticed your tailored China trips. Would a sample ground-service outline be useful?",
                 "evidence_ids": ["ev_demo"],
+                "product_version": "test-v1",
+                "outreach_contract": {
+                    "recipient_kind": "person",
+                    "address_status": "published",
+                    "role_reason": "Product manager",
+                    "fact_checked_by": "test reviewer",
+                    "product_approved_by": "test owner",
+                    "consent": {
+                        "basis": "express",
+                        "market": "AU",
+                        "source_reference": "test-only consent",
+                        "reason": "isolated test",
+                        "reviewed_by": "test reviewer",
+                        "valid_until": "2099-01-01T00:00:00+00:00",
+                    },
+                },
             },
             "req-draft",
         )
@@ -217,6 +261,7 @@ class CliWorkflowTests(unittest.TestCase):
                 "run_id": self.run,
                 "contact_id": "ct_demo",
                 "channel": "linkedin",
+                "product_version": "test-v1",
                 "body": "Hi Alex, I saw your China itineraries. Open to a quick ground-service outline?",
                 "evidence_ids": ["ev_demo"],
             },
@@ -242,13 +287,13 @@ class CliWorkflowTests(unittest.TestCase):
     def test_workbook_round_trip_has_all_review_sheets(self):
         output = self.root / "batch.xlsx"
         result = export_workbook(self.db, output, self.run)
-        self.assertEqual(result["sheets"], len(SHEETS) + 2)
+        self.assertEqual(result["sheets"], 1)
         self.assertTrue(output.exists())
         from openpyxl import load_workbook
 
         workbook = load_workbook(output, read_only=True)
         self.assertEqual(workbook.sheetnames[0], BUSINESS_SHEET)
-        self.assertIn(COVERAGE_SHEET, workbook.sheetnames)
+        self.assertEqual(workbook.sheetnames, [BUSINESS_SHEET])
         workbook.close()
 
     def test_legacy_bundle_is_preserved_and_mapped(self):
@@ -471,7 +516,7 @@ class CliWorkflowTests(unittest.TestCase):
             connection.execute("DROP TABLE source_plan_entries")
             connection.execute("UPDATE workspace_meta SET schema_version=1 WHERE singleton=1")
         self.db.migrate()
-        self.assertEqual(self.db.schema_version(), 3)
+        self.assertEqual(self.db.schema_version(), 5)
         self.assertEqual(len(self.db.query("SELECT * FROM candidates WHERE run_id=?", (self.run,))), 2)
         self.assertEqual(len(self.db.query("SELECT * FROM candidate_sources WHERE run_id=?", (self.run,))), 2)
         plan = self.db.query("SELECT * FROM source_plan_entries WHERE run_id=?", (self.run,))
@@ -487,6 +532,7 @@ class CliWorkflowTests(unittest.TestCase):
                     {
                         "name": name,
                         "source_url": url,
+                        "website": url,
                         "observed_text": text,
                         "source_category": category,
                         "query_summary": query,
@@ -562,7 +608,7 @@ class CliWorkflowTests(unittest.TestCase):
             "SELECT candidate_id FROM candidates WHERE run_id=? AND root_domain='alpha.example.org'", (self.run,)
         )
         self.assertEqual(len(rows), 1)
-        self.assertEqual(self.db.schema_version(), 3)
+        self.assertEqual(self.db.schema_version(), 5)
 
     def test_run_discovery_policy_is_configurable_and_market_neutral(self):
         configured = create_run(
@@ -602,6 +648,8 @@ class CliWorkflowTests(unittest.TestCase):
         )
 
     def test_research_bridge_pauses_for_human_then_creates_two_native_drafts(self):
+        with self.db.transaction() as connection:
+            connection.execute("UPDATE runs SET product_version='test-v1' WHERE run_id=?", (self.run,))
         bundle = {
             "executor": "codex_bridge",
             "discovered_count": 2,
@@ -697,6 +745,9 @@ class CliWorkflowTests(unittest.TestCase):
             ],
         }
         result = ingest_source_bundle(self.db, self.run, bundle, "req-research")
+        # 待批准公司正式域名尚为空，也必须沿候选实体链接去重。
+        ingest_source_bundle(self.db, self.run, bundle, "req-research-repeat")
+        self.assertEqual(len(self.db.query("SELECT * FROM companies")), 1)
         self.assertEqual(result["next_action"], "awaiting_claim_review")
         self.assertEqual(result["coverage"]["candidate_count"], 2)
         self.assertEqual(result["coverage"]["selected_count"], 1)
@@ -716,10 +767,13 @@ class CliWorkflowTests(unittest.TestCase):
         approved = approve_run_claims(self.db, self.run, "test human", "Reviewed sources", "req-human")
         self.assertEqual(approved["next_action"], "awaiting_drafts")
         contact = self.db.query("SELECT contact_id FROM contacts")[0]
-        evidence = self.db.query("SELECT evidence_id FROM evidence WHERE entity_type='company'")[0]
+        evidence = self.db.query(
+            "SELECT e.evidence_id FROM evidence e JOIN claim_evidence ce ON ce.evidence_id=e.evidence_id JOIN claims cl ON cl.claim_id=ce.claim_id WHERE e.entity_type='company' AND cl.status='accepted'"
+        )[0]
         draft_bundle = {
             "drafts": [
                 {
+                    "product_version": "test-v1",
                     "contact_id": contact["contact_id"],
                     "channel": "email",
                     "subject": "China ground support",
@@ -727,6 +781,7 @@ class CliWorkflowTests(unittest.TestCase):
                     "evidence_ids": [evidence["evidence_id"]],
                 },
                 {
+                    "product_version": "test-v1",
                     "contact_id": contact["contact_id"],
                     "channel": "linkedin",
                     "body": "Hi, I saw your tailored China trips and wanted to connect. Would it help if I shared a concise outline of our local ground support?",
@@ -746,29 +801,11 @@ class CliWorkflowTests(unittest.TestCase):
 
         opened = load_workbook(output, read_only=False)
         lead_review = opened[BUSINESS_SHEET]
-        self.assertEqual(
-            [cell.value for cell in lead_review[1]],
-            [
-                "优先级",
-                "公司",
-                "官网",
-                "资料状态",
-                "买方角色",
-                "中国产品",
-                "地接合作空间",
-                "竞争关系",
-                "联系人及渠道",
-                "判断依据",
-                "风险与下一步",
-            ],
-        )
-        self.assertEqual(lead_review.auto_filter.ref, "A1:K2")
-        self.assertIn("公开企业邮箱（非个人邮箱）", lead_review["I2"].value)
-        self.assertEqual(lead_review.max_row, 2)
-        self.assertEqual(opened["CandidatePool"].max_row, 3)
-        self.assertEqual(opened["SourcePlan"].max_row, 3)
-        self.assertEqual(opened["CandidateSources"].max_row, 4)
-        self.assertEqual(opened["DiscoveryCoverage"][7][1].value, "否")
+        self.assertEqual([cell.value for cell in lead_review[1]], HEADERS)
+        self.assertEqual(lead_review.auto_filter.ref, "A1:G2")
+        self.assertIn("企业转交邮箱", lead_review["E2"].value)
+        self.assertGreater(lead_review.max_row, 2)
+        self.assertEqual(opened.sheetnames, [BUSINESS_SHEET])
         opened.close()
         verification = verify_research_uat(self.db, self.run, output)
         self.assertFalse(verification["passed"])

@@ -386,6 +386,8 @@ def import_evidence(db: Database, path: Path, request_id: str) -> dict[str, Any]
 
 
 def decide_claim(db: Database, claim_id: str, status: str, actor: str, reason: str, request_id: str) -> dict[str, Any]:
+    if not actor.strip() or not reason.strip():
+        raise ValidationError("事实审核必须记录真实审核人和理由")
     if status not in CLAIM_STATUSES - {"proposed", "superseded"}:
         raise ValidationError("无效 Claim 决策")
     with db.transaction() as connection:
@@ -397,6 +399,15 @@ def decide_claim(db: Database, claim_id: str, status: str, actor: str, reason: s
         ).fetchone()[0]
         if status == "accepted" and evidence_count < 1:
             raise StateError("没有证据的 Claim 不能接受")
+        if (
+            status == "accepted"
+            and connection.execute(
+                "SELECT 1 FROM evidence e JOIN claim_evidence ce ON ce.evidence_id=e.evidence_id "
+                "WHERE ce.claim_id=? AND (e.entity_type<>? OR e.entity_id<>? OR e.access_status<>?)",
+                (claim_id, row["entity_type"], row["entity_id"], "accessible"),
+            ).fetchone()
+        ):
+            raise StateError("Claim证据属于其他实体或来源不可访问")
         conflicts = connection.execute(
             "SELECT COUNT(*) FROM evidence e JOIN claim_evidence ce ON ce.evidence_id=e.evidence_id WHERE ce.claim_id=? AND e.conflicts=1",
             (claim_id,),
@@ -408,6 +419,11 @@ def decide_claim(db: Database, claim_id: str, status: str, actor: str, reason: s
             (status, actor, utc_now(), reason, claim_id),
         )
         if status == "accepted":
+            connection.execute(
+                "UPDATE claims SET status='superseded' WHERE entity_type=? AND entity_id=? "
+                "AND field_name=? AND status='accepted' AND claim_id<>?",
+                (row["entity_type"], row["entity_id"], row["field_name"], claim_id),
+            )
             company_fields = {
                 "country",
                 "city",
@@ -495,13 +511,17 @@ def decide_claim(db: Database, claim_id: str, status: str, actor: str, reason: s
 
 
 def create_draft(db: Database, payload: dict[str, Any], request_id: str) -> dict[str, Any]:
+    from .outreach import accepted_draft_claims, contract_for, evidence_fingerprint, validate_product_binding
+
     channel = str(payload.get("channel", ""))
     if channel not in {"email", "linkedin"}:
         raise ValidationError("channel 必须是 email 或 linkedin")
     body = str(payload.get("body", "")).strip()
     if not body:
         raise ValidationError("草稿正文不能为空")
-    require_one_cta(body)
+    if not isinstance(payload.get("outreach_contract", {}), dict):
+        raise ValidationError("outreach_contract必须是对象")
+    require_one_cta(body, payload.get("outreach_contract", {}).get("primary_cta", ""))
     with db.transaction() as connection:
         contact = connection.execute(
             "SELECT * FROM contacts WHERE contact_id=?", (payload.get("contact_id"),)
@@ -509,6 +529,10 @@ def create_draft(db: Database, payload: dict[str, Any], request_id: str) -> dict
         if not contact:
             raise ValidationError("找不到联系人")
         company_id = contact["company_id"]
+        company_run = connection.execute("SELECT run_id FROM companies WHERE company_id=?", (company_id,)).fetchone()[0]
+        if payload.get("run_id") not in {None, company_run}:
+            raise ValidationError("草稿联系人不属于指定批次")
+        validate_product_binding(connection, company_run, payload.get("product_version", ""))
         evidence_ids = payload.get("evidence_ids", [])
         if not isinstance(evidence_ids, list) or not evidence_ids:
             raise ValidationError("草稿必须引用至少一条 Evidence")
@@ -519,6 +543,9 @@ def create_draft(db: Database, payload: dict[str, Any], request_id: str) -> dict
         ).fetchone()[0]
         if matched_evidence != len(set(evidence_ids)):
             raise ValidationError("草稿引用了不存在或不属于当前公司/联系人的 Evidence")
+        claim_ids = accepted_draft_claims(connection, contact, evidence_ids)
+        contract = contract_for(contact, payload, claim_ids)
+        contract["evidence_fingerprint"] = evidence_fingerprint(connection, claim_ids, evidence_ids)
         ensure_draft_can_advance(
             has_contact=True,
             identity_status=contact["identity_status"],
@@ -533,7 +560,7 @@ def create_draft(db: Database, payload: dict[str, Any], request_id: str) -> dict
             "INSERT INTO drafts VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (
                 draft_id,
-                payload.get("run_id"),
+                company_run,
                 company_id,
                 contact["contact_id"],
                 channel,
@@ -547,6 +574,10 @@ def create_draft(db: Database, payload: dict[str, Any], request_id: str) -> dict
                 now,
                 None,
             ),
+        )
+        connection.execute(
+            "INSERT INTO draft_contracts VALUES (?,?)",
+            (draft_id, json.dumps(contract, ensure_ascii=False, sort_keys=True)),
         )
         db.append_event(
             connection,
@@ -562,15 +593,23 @@ def create_draft(db: Database, payload: dict[str, Any], request_id: str) -> dict
 
 
 def approve_draft(db: Database, draft_id: str, actor: str, reason: str, request_id: str) -> dict[str, Any]:
+    from .outreach import approval_fingerprint, load_contract, validate_for_approval
+
+    if not actor.strip() or not reason.strip():
+        raise ValidationError("必须填写真实审核人及批准理由")
     with db.transaction() as connection:
         row = connection.execute("SELECT * FROM drafts WHERE draft_id=?", (draft_id,)).fetchone()
         if not row:
             raise ValidationError("找不到草稿")
         require_draft_transition(row["status"], "approved")
-        current_hash = canonical_hash(row["body"])
+        contract = load_contract(connection, draft_id)
+        validate_for_approval(connection, row, contract)
+        if active_stop_exists(connection, row["contact_id"], row["company_id"]):
+            raise StateError("命中停止联系规则")
+        current_hash = approval_fingerprint(row, contract)
         connection.execute(
-            "UPDATE drafts SET status='approved',body_hash=?,updated_at=? WHERE draft_id=?",
-            (current_hash, utc_now(), draft_id),
+            "UPDATE drafts SET status='approved',updated_at=? WHERE draft_id=?",
+            (utc_now(), draft_id),
         )
         connection.execute(
             "INSERT INTO approvals VALUES (?,?,?,?,?,?)",
@@ -588,6 +627,8 @@ def approve_draft(db: Database, draft_id: str, actor: str, reason: str, request_
 
 
 def set_draft_status(db: Database, draft_id: str, target: str, request_id: str) -> dict[str, Any]:
+    from .outreach import approval_fingerprint, load_contract, validate_for_approval
+
     if target not in DRAFT_STATUSES:
         raise ValidationError("无效草稿状态")
     with db.transaction() as connection:
@@ -596,11 +637,13 @@ def set_draft_status(db: Database, draft_id: str, target: str, request_id: str) 
             raise ValidationError("找不到草稿")
         require_draft_transition(row["status"], target)
         if target == "sent":
+            contract = load_contract(connection, draft_id)
+            validate_for_approval(connection, row, contract)
             approval = connection.execute(
                 "SELECT body_hash FROM approvals WHERE draft_id=? ORDER BY approved_at DESC LIMIT 1", (draft_id,)
             ).fetchone()
-            if not approval or approval[0] != canonical_hash(row["body"]):
-                raise StateError("草稿未批准或批准后正文已修改")
+            if not approval or approval[0] != approval_fingerprint(row, contract):
+                raise StateError("草稿未批准或批准后收件目标、内容或联系合同已修改")
             if active_stop_exists(connection, row["contact_id"], row["company_id"]):
                 raise StateError("命中停止联系规则，不能记录发送")
         connection.execute(
@@ -672,11 +715,7 @@ def ingest_reply(db: Database, payload: dict[str, Any], idempotency_key: str, re
             except Exception as exc:
                 if "UNIQUE" not in str(exc):
                     raise
-            cursor = connection.execute(
-                "UPDATE drafts SET status='stopped',updated_at=? WHERE contact_id=? AND status IN ('draft','review_ready','approved')",
-                (utc_now(), payload["contact_id"]),
-            )
-            changed += cursor.rowcount
+            changed += _stop_matching_drafts(connection)
         result = _result(
             request_id,
             changed=changed,
@@ -695,18 +734,35 @@ def ingest_reply(db: Database, payload: dict[str, Any], idempotency_key: str, re
         return result
 
 
+def _stop_matching_drafts(connection: Any) -> int:
+    """Stop every pending draft covered by an active rule, including equivalent identities in other runs."""
+    changed = 0
+    for draft in connection.execute(
+        "SELECT draft_id,contact_id,company_id FROM drafts WHERE status IN ('draft','review_ready','approved')"
+    ).fetchall():
+        if active_stop_exists(connection, draft["contact_id"], draft["company_id"]):
+            connection.execute(
+                "UPDATE drafts SET status='stopped',updated_at=? WHERE draft_id=?",
+                (utc_now(), draft["draft_id"]),
+            )
+            changed += 1
+    return changed
+
+
 def add_stop(
     db: Database, scope_type: str, scope_value: str, reason: str, actor: str, request_id: str
 ) -> dict[str, Any]:
     if scope_type not in {"contact", "company", "email", "domain"}:
         raise ValidationError("无效停止范围")
+    if not scope_value.strip() or not actor.strip() or not reason.strip():
+        raise ValidationError("停止联系必须填写目标、真实操作人和理由")
     with db.transaction() as connection:
         prior = connection.execute(
             "SELECT stop_rule_id FROM stop_rules WHERE scope_type=? AND scope_value=? AND status='active'",
             (scope_type, scope_value),
         ).fetchone()
         if prior:
-            return _result(request_id, status="already_applied")
+            return _result(request_id, status="already_applied", changed=_stop_matching_drafts(connection))
         rule_id = new_id("stop")
         connection.execute(
             "INSERT INTO stop_rules VALUES (?,?,?,?,?,?,?,?,?,?)",
@@ -715,12 +771,13 @@ def add_stop(
         db.append_event(
             connection, event_type="stop.added", request_id=request_id, entity_type="stop_rule", entity_id=rule_id
         )
-    return _result(request_id, changed=1)
+        stopped_count = _stop_matching_drafts(connection)
+    return _result(request_id, changed=1 + stopped_count)
 
 
 def release_stop(db: Database, rule_id: str, actor: str, reason: str, request_id: str) -> dict[str, Any]:
-    if not reason.strip():
-        raise ValidationError("解除停止必须填写理由")
+    if not actor.strip() or not reason.strip():
+        raise ValidationError("解除停止必须填写真实操作人和理由")
     with db.transaction() as connection:
         cursor = connection.execute(
             "UPDATE stop_rules SET status='released',released_by=?,released_at=?,release_reason=? WHERE stop_rule_id=? AND status='active'",
@@ -812,7 +869,7 @@ def record_source_result(
                 int(payload.get("attempts", 1)),
                 payload["outcome"],
                 len(observations),
-                float(payload.get("cost_amount", 0)),
+                float(payload.get("cost_amount") or 0),
                 int(payload.get("duration_ms", 0)),
                 str(payload.get("error_code", "")),
                 int(bool(payload.get("retryable", False))),
@@ -856,7 +913,11 @@ def record_source_result(
             run_id=payload["run_id"],
             entity_type="source_run",
             entity_id=source_run_id,
-            payload={"outcome": payload["outcome"]},
+            payload={
+                "outcome": payload["outcome"],
+                "cost_amount": payload.get("cost_amount"),
+                "cost_known": payload.get("cost_amount") is not None,
+            },
         )
         db.idempotency_store(connection, idempotency_key, payload, result)
         return result

@@ -4,6 +4,8 @@ RUN_STATUSES = {"created", "researching", "reviewing", "closed", "cancelled"}
 CLAIM_STATUSES = {"proposed", "accepted", "held", "rejected", "superseded"}
 DRAFT_STATUSES = {"draft", "review_ready", "approved", "sent", "stopped"}
 SOURCE_OUTCOMES = {
+    "unavailable",
+    "rate_limited",
     "succeeded",
     "no_results",
     "restricted",
@@ -23,6 +25,10 @@ REPLY_CATEGORIES = {
     "unsubscribe",
     "complaint",
     "other",
+    "referred_to_other_contact",
+    "future_interest",
+    "not_fit",
+    "automatic_reply",
 }
 TAKEOVER_REPLIES = {"request_quote", "meeting_requested", "unsubscribe", "complaint"}
-STOP_REPLIES = {"unsubscribe", "complaint"}
+STOP_REPLIES = {"unsubscribe", "complaint", "declined"}

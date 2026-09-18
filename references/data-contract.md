@@ -11,8 +11,11 @@
 5. 每条输入都必须进入明确结果状态，不能因异常而静默消失。
 6. 搜索摘要只能用于发现，不能直接标为 `verified`。
 7. CLI只规范化、检查和提出重复建议，不替代业务判断或人工合并。
+8. 目录或展会来源的域名不是公司域名；发现记录只有明确 `website` 时才用该官网做域名去重。部门邮箱不映射到个人；官网联系页可展示为研究入口，但不自动成为可发送渠道。
 
-## 2. Excel审阅结构
+## 2. 后台审计结构与Excel结果视图
+
+下表是后台数据库/审计视图，不是默认Excel工作表。用户Excel只有“客户结果”一张表、7列；证据来源可由单元格批注或后台记录追溯，不恢复旧版多工作表输出。
 
 | 工作表 | 粒度 | 作用 |
 |---|---|---|
@@ -77,7 +80,7 @@ ID 是本地不可变标识，不是外部平台 ID：
 `research_stage`：
 
 - `candidate_pool`：已经发现但尚未完成正式核验；
-- `formal_list`：主体、业务依据和联系人处理均达到外联准备要求；
+- `formal_list`：进入研究名单，具备主体和业务依据；事实核准、实际产品匹配及外联许可单独判断，不代表可发送；
 - `held`：冲突、来源受限或重要缺口导致暂缓；
 - `excluded`：明确不匹配或不得联系。
 
@@ -104,7 +107,7 @@ ID 是本地不可变标识，不是外部平台 ID：
 
 - `verified`：公开资料明确支持姓名、公司和当前职责；
 - `supported`：资料基本一致，但仍需人工确认；
-- `identity_pending`：只有候选线索；
+- `unverified`：只有候选线索；
 - `contradicted`：来源冲突，不能继续升级；
 - `not_found`：已搜索但没有找到具体负责人。
 
@@ -151,20 +154,20 @@ ID 是本地不可变标识，不是外部平台 ID：
 
 ## 9. Claim与草稿合同
 
-Evidence 是观察，Claim 是待决定事实，正式公司/联系人字段只接受经过规则或人工批准的 Claim。没有 Evidence 的 Claim 不能接受；存在冲突证据时必须 held 或 rejected。
+Evidence 是观察，Claim 是待决定事实，正式公司/联系人字段只接受真实人工批准的 Claim。规则检查不能代替人工批准。没有 Evidence 的 Claim 不能接受；存在冲突证据时必须 held 或 rejected。
 
-邮件和 LinkedIn 必须是两条独立记录。每条草稿必须关联联系人和个性化证据：
+选择实际可用的首选渠道；如确需准备两个渠道，必须分别记录，不要求每家公司具备两个渠道。每条草稿必须关联联系人和个性化证据：
 
 - 草稿的 `evidence_ids` 必须指向当前公司或联系人的存在且非冲突证据；
 - `fact_check_status` 和 `voice_check_status` 未通过时不能批准；
-- 人工批准保存正文哈希，正文变化后批准立即失效；
+- 人工批准保存完整发送快照哈希；收件目标、渠道、主题、正文、附件、证据、产品版本或联系合同改变后，原批准不可用于记录发送；
 - `sent` 必须有 `sent_at`，且只表示人工回填发送事实；
 - `do_not_contact` 公司、联系人或邮箱不得存在可发送状态的草稿；
 - 第一轮无回复不自动生成下一条追信。
 
 ## 10. 回复与询盘合同
 
-回复只提取文字中明确出现的信息。目的地、日期、人数、客群、服务、语言、预算、佣金和截止日期没有出现时留空，并写入 `unknown_requirements`。
+回复只提取文字中明确出现的信息。目的地、日期、人数、客群、服务、语言、预算、佣金和截止日期没有出现时留空，并写入 `unknown_needs`。
 
 报价、会议、佣金、合同、支付、取消、投诉、退订和复杂执行需求必须 `needs_human_takeover=true`。
 
@@ -193,3 +196,13 @@ Evidence 是观察，Claim 是待决定事实，正式公司/联系人字段只�
 ## 12. 兼容旧版 CSV
 
 旧版多表JSON使用 `inbound-leads import legacy` 无损封存原始输入并映射到SQLite。旧单表CSV应先整理为当前 `companies`、`contacts` 或 `evidence` 导入字段；未知字段会明确报错，不会静默丢弃。
+
+## 13. 研究扩展合同（无需改变schema）
+
+source bundle公司可新增qualification_path（direct/expansion/channel）、audience_fit、cooperation_hypothesis、counter_evidence、next_action、group_key、independent_unit_reason。均保存为待审Claim，不直接写成正式事实；预览按accepted再proposed覆盖。扩展和渠道的适用门槛见research-protocol。同一group_key多个公司需要各自独立合作依据，否则验收失败；此检查不能自动发现未提供的集团关系。
+
+contact新增route_grade（R0/R1/R2/R3）、route_purpose（business/general/unknown/unsuitable），也保存为Claim。旧数据保守默认R3/unknown。R1具名相关人员、R2相关部门均要求business及职责说明；R1还需姓名。R3为通用转交，R0缺失；unsuitable、contradicted不能计有效入口。business_route_count与handoff_route_count分开，不把普通页面算职责已确认。
+
+公司/联系人可提供field_sources：字段名到已成功读取的本实体来源URL数组。提供此映射后，每个提交字段都必须有绑定；未知URL或缺字段报错回滚。旧bundle未提供时仍兼容，但宽泛证据关联不证明逐字段语义正确，必须人工复核。新研究应提供绑定，包括route_grade/route_purpose；hypothesis字段是有依据的分析而非对方采购事实。
+
+名单验收检查正式及待审身份上的停发、关键公司阻塞缺口、入口与集团计数。R3可交待审名单，但不是外联批准。research_delivery_status表示名单准备，旧stage仅为工作流兼容，不强制准备文案。

@@ -58,13 +58,25 @@ def repository_files(root: Path) -> list[Path]:
 def audit_public_repo(root: Path) -> dict[str, Any]:
     findings: list[dict[str, str]] = []
     for path in repository_files(root):
-        if not path.is_file() or any(part in EXCLUDED_PARTS or part.endswith(".egg-info") for part in path.parts):
+        if not path.is_file():
             continue
-        relative = path.relative_to(root).as_posix()
-        if path.name in SENSITIVE_NAMES or path.suffix.lower() in {".db", ".sqlite", ".xlsx"}:
+        relative_path = path.relative_to(root)
+        relative = relative_path.as_posix()
+        # Git 已跟踪文件即使位于忽略目录也会上传，不能静默跳过。
+        if any(part in {"outputs", "output", "workspace", "data", "secrets", "uat"} for part in relative_path.parts):
+            findings.append({"path": relative, "reason": "私有运行目录不得发布"})
+            continue
+        if any(part in EXCLUDED_PARTS or part.endswith(".egg-info") for part in relative_path.parts):
+            continue
+        if (
+            path.name in SENSITIVE_NAMES
+            or (path.name.startswith(".env.") and path.name != ".env.example")
+            or path.suffix.lower() in {".db", ".sqlite", ".sqlite3", ".xlsx", ".xls", ".jsonl"}
+        ):
             findings.append({"path": relative, "reason": "运行数据或敏感文件类型"})
             continue
         if path.stat().st_size > 2_000_000:
+            findings.append({"path": relative, "reason": "大文件未自动完成内容审计，请单独复核后调整发布范围"})
             continue
         try:
             text = path.read_text(encoding="utf-8")
