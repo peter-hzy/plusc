@@ -6,6 +6,7 @@ import json
 from datetime import datetime, timezone
 from typing import Any
 
+from ..domain.company_fit import SERVICE_FIELDS, validate_service_fit
 from ..errors import StateError, ValidationError
 from ..storage.database import canonical_hash
 
@@ -50,6 +51,9 @@ def contract_for(contact: Any, payload: dict[str, Any], claims: list[str]) -> di
         "attachments",
         "fact_checked_by",
         "primary_cta",
+        "fact_check_status",
+        "voice_check_status",
+        "voice_checked_by",
     }
     if set(supplied) - allowed:
         raise ValidationError("outreach_contract 存在未知字段")
@@ -69,9 +73,24 @@ def contract_for(contact: Any, payload: dict[str, Any], claims: list[str]) -> di
         "attachments": [],
         "fact_checked_by": "",
         "primary_cta": "",
+        "fact_check_status": "needs_review",
+        "voice_check_status": "needs_review",
+        "voice_checked_by": "",
         **supplied,
         "claim_ids": claims,
     }
+    for field in ("fact_check_status", "voice_check_status"):
+        if field in payload:
+            if field in supplied and supplied[field] != payload[field]:
+                raise ValidationError(f"{field} 顶层与合同不一致")
+            contract[field] = payload[field]
+        if not isinstance(contract[field], str) or contract[field] not in {
+            "needs_review",
+            "pending",
+            "passed",
+            "failed",
+        }:
+            raise ValidationError(f"{field} 无效")
     if contract["recipient"] != default_address:
         raise ValidationError("收件地址必须与已核验联系人当前渠道一致")
     if contract["recipient_kind"] not in {"person", "department", "company", "unknown"}:
@@ -106,6 +125,14 @@ def validate_for_approval(connection: Any, draft: Any, contract: dict[str, Any])
     contact = connection.execute("SELECT * FROM contacts WHERE contact_id=?", (draft["contact_id"],)).fetchone()
     if not contact or contact["identity_status"] not in {"supported", "verified"}:
         raise StateError("联系人身份当前未核验或已发生冲突")
+    if any(contract.get(field) != "passed" for field in ("fact_check_status", "voice_check_status")):
+        raise StateError("事实和语气复核必须均已通过")
+    if not contract.get("voice_checked_by", "").strip():
+        raise StateError("缺少语气复核人")
+    _require_fresh(contact["last_verified_at"], 30, "联系人身份")
+    for evidence_id in json.loads(draft["evidence_ids"]):
+        evidence = connection.execute("SELECT * FROM evidence WHERE evidence_id=?", (evidence_id,)).fetchone()
+        _require_fresh(evidence["observed_at"], 30 if evidence["entity_type"] == "contact" else 90, "引用证据")
     if connection.execute(
         "SELECT 1 FROM research_gaps WHERE status='open' AND blocking=1 AND "
         "((entity_type='company' AND entity_id=?) OR (entity_type='contact' AND entity_id=?))",
@@ -135,13 +162,47 @@ def validate_for_approval(connection: Any, draft: Any, contract: dict[str, Any])
             (contact["company_id"],),
         ).fetchall()
     }
-    if (
+    pending_policy = connection.execute(
+        "SELECT 1 FROM claims WHERE entity_type='company' AND entity_id=? "
+        "AND field_name='qualification_policy' AND status='proposed' LIMIT 1",
+        (contact["company_id"],),
+    ).fetchone()
+    if pending_policy:
+        raise StateError("新的合作适配合同仍待审核，不能回退旧合同批准")
+    if fit.get("qualification_policy") == "service_fit_v1":
+        try:
+            validate_service_fit({**fit, "fit_status": company["fit_status"]})
+        except ValidationError as exc:
+            raise StateError(str(exc)) from exc
+        required_fit_fields = ("qualification_policy", *SERVICE_FIELDS)
+    elif fit.get("qualification_policy") is not None:
+        raise StateError("未知 qualification_policy")
+    elif (
         fit.get("source_market_role") != "outbound_seller"
         or fit.get("china_product_signal") not in {"direct", "adjacent"}
         or fit.get("ground_partner_route") not in {"external_partner_possible", "unclear", "in_house"}
         or fit.get("competitive_position") not in {"potential_buyer", "mixed", "unknown"}
     ):
         raise StateError("缺少已核验的旅游客源买方适配事实")
+    else:
+        required_fit_fields = (
+            "source_market_role",
+            "china_product_signal",
+            "ground_partner_route",
+            "competitive_position",
+        )
+    for field in required_fit_fields:
+        if not connection.execute(
+            "SELECT 1 FROM claims c JOIN claim_evidence ce ON ce.claim_id=c.claim_id "
+            "JOIN evidence e ON e.evidence_id=ce.evidence_id "
+            "WHERE c.entity_type='company' AND c.entity_id=? AND c.field_name=? "
+            "AND c.status='accepted' AND e.entity_type='company' AND e.entity_id=c.entity_id "
+            "AND e.conflicts=0 AND e.access_status='accessible' "
+            "AND e.source_level IN ('primary','secondary') "
+            "AND julianday(e.observed_at) BETWEEN julianday('now','-90 days') AND julianday('now') LIMIT 1",
+            (contact["company_id"], field),
+        ).fetchone():
+            raise StateError(f"适配事实缺少有效且近期的来源：{field}")
     if company["fit_status"] in {"not_fit", "do_not_contact", "research_needed", "nurture"}:
         raise StateError("客户当前不在可联系状态")
     if consent["market"] != company["country"]:
@@ -164,3 +225,13 @@ def validate_for_approval(connection: Any, draft: Any, contract: dict[str, Any])
 def approval_fingerprint(draft: Any, contract: dict[str, Any]) -> str:
     fields = ("run_id", "company_id", "contact_id", "channel", "subject", "body", "evidence_ids", "product_version")
     return canonical_hash({"draft": {k: draft[k] for k in fields}, "contract": contract})
+
+
+def _require_fresh(value: Any, days: int, label: str) -> None:
+    try:
+        observed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        age = datetime.now(timezone.utc) - observed
+        if observed.tzinfo is None or not 0 <= age.total_seconds() <= days * 86400:
+            raise ValueError()
+    except (ValueError, TypeError):
+        raise StateError(f"{label}日期无效或超过{days}天，请重新核验来源并创建草稿") from None

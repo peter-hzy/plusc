@@ -9,6 +9,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from ..adapters.registry import built_in_adapters
+from ..domain.company_fit import SERVICE_FIELDS, segment_allowed, validate_service_fit
 from ..domain.policies import require_one_cta
 from ..errors import StateError, ValidationError
 from ..storage.database import Database, canonical_hash, new_id, utc_now
@@ -49,7 +50,12 @@ _FIT_GATE_VALUES = {
 
 
 def validate_company_fit_gates(company: dict[str, Any]) -> dict[str, str]:
-    """阻止把当地地接、泛旅游公司或一体化竞争者升级为潜在买方。"""
+    """New records use service fit; legacy records retain their historical contract."""
+    policy = company.get("qualification_policy")
+    if policy == "service_fit_v1":
+        return validate_service_fit(company)
+    if policy is not None:
+        raise ValidationError("未知 qualification_policy")
     name = str(company.get("name", "未命名公司")).strip()
     values: dict[str, str] = {}
     for field, allowed in _FIT_GATE_VALUES.items():
@@ -424,6 +430,10 @@ def ingest_source_bundle(db: Database, run_id: str, bundle: dict[str, Any], requ
                 if field not in company:
                     raise ValidationError(f"公司研究缺少字段：{field}")
             fit_gates = validate_company_fit_gates(company)
+            if company.get("qualification_policy") == "service_fit_v1" and not isinstance(
+                company.get("field_sources"), dict
+            ):
+                raise ValidationError("新研究必须逐字段绑定来源 field_sources")
             website = normalize_url(str(company["website"]))
             domain = root_domain(website)
             if not domain or domain in seen_domains:
@@ -550,10 +560,7 @@ def ingest_source_bundle(db: Database, run_id: str, bundle: dict[str, Any], requ
                 ("segment", str(company["segment"]), "strong"),
                 ("fit_reason", str(company["fit_reason"]), "strong"),
                 ("fit_status", str(company["fit_status"]), "strong"),
-                ("source_market_role", fit_gates["source_market_role"], "strong"),
-                ("china_product_signal", fit_gates["china_product_signal"], "strong"),
-                ("ground_partner_route", fit_gates["ground_partner_route"], "strong"),
-                ("competitive_position", fit_gates["competitive_position"], "strong"),
+                *((field, value, "strong") for field, value in fit_gates.items()),
             ):
                 _insert_claim(
                     connection,
@@ -566,6 +573,7 @@ def ingest_source_bundle(db: Database, run_id: str, bundle: dict[str, Any], requ
                 )
                 changed += 1
             for field in (
+                "qualification_policy",
                 "qualification_path",
                 "audience_fit",
                 "cooperation_hypothesis",
@@ -574,7 +582,7 @@ def ingest_source_bundle(db: Database, run_id: str, bundle: dict[str, Any], requ
                 "group_key",
                 "independent_unit_reason",
             ):
-                if str(company.get(field, "")).strip():
+                if field not in fit_gates and str(company.get(field, "")).strip():
                     _insert_claim(
                         connection,
                         entity_type="company",
@@ -852,7 +860,39 @@ def _ingest_draft_bundle(db: Database, run_id: str, bundle: dict[str, Any], requ
             )
             stored = db.query("SELECT contract_json FROM draft_contracts WHERE draft_id=?", (current["draft_id"],))
             supplied = draft.get("outreach_contract", {})
+            supplied = {**supplied, **{f: draft[f] for f in ("fact_check_status", "voice_check_status") if f in draft}}
             contract = json.loads(stored[0]["contract_json"]) if stored else {}
+            qa_fields = {"fact_check_status", "voice_check_status", "fact_checked_by", "voice_checked_by"}
+            differences = {k for k, v in supplied.items() if contract.get(k) != v}
+            if not changed and stored and current["status"] == "draft" and differences and differences <= qa_fields:
+                from .outreach import contract_for
+
+                contact = db.query("SELECT * FROM contacts WHERE contact_id=?", (draft["contact_id"],))[0]
+                inputs = {k: v for k, v in contract.items() if k not in {"claim_ids", "evidence_fingerprint"}}
+                checked = contract_for(
+                    contact, {**draft, "outreach_contract": {**inputs, **supplied}}, contract["claim_ids"]
+                )
+                checked["evidence_fingerprint"] = contract["evidence_fingerprint"]
+                ready = all(checked[f] == "passed" for f in ("fact_check_status", "voice_check_status"))
+                with db.transaction() as connection:
+                    connection.execute(
+                        "UPDATE draft_contracts SET contract_json=? WHERE draft_id=?",
+                        (json.dumps(checked, ensure_ascii=False, sort_keys=True), current["draft_id"]),
+                    )
+                    connection.execute(
+                        "UPDATE drafts SET status=?,updated_at=? WHERE draft_id=?",
+                        ("review_ready" if ready else "draft", utc_now(), current["draft_id"]),
+                    )
+                    db.append_event(
+                        connection,
+                        event_type="draft.qa_reviewed",
+                        request_id=request_id,
+                        run_id=run_id,
+                        entity_type="draft",
+                        entity_id=current["draft_id"],
+                        payload={f: checked[f] for f in qa_fields},
+                    )
+                contract = checked
             if changed or not stored or any(contract.get(k) != v for k, v in supplied.items()):
                 raise StateError("同一联系人和渠道已有不同草稿，请先人工处理旧草稿")
             created.append(existing[0]["draft_id"])
@@ -971,6 +1011,11 @@ def research_status(db: Database, run_id: str) -> dict[str, Any]:
                 "evidence": evidence,
                 "claims": claims,
                 "drafts": drafts,
+                "replies": db.query(
+                    "SELECT r.* FROM replies r JOIN contacts c ON c.contact_id=r.contact_id "
+                    "WHERE c.company_id=? ORDER BY julianday(r.received_at) DESC,r.created_at DESC,r.rowid DESC",
+                    (cid,),
+                ),
                 "gaps": gaps,
             }
         )
@@ -1008,7 +1053,7 @@ def verify_company_list(db: Database, run_id: str, workbook: Path | None = None)
         seen.add(domain)
         if company["country"] not in str(run["markets"]).split(","):
             failures.append(f"{name}：不在批次市场")
-        if company["segment"] not in str(run["segments"]).split(","):
+        if not segment_allowed(company["segment"], str(run["segments"])):
             failures.append(f"{name}：不在批次客户类型")
         try:
             validate_company_fit_gates({**company, "name": name})
@@ -1145,7 +1190,6 @@ def verify_research_uat(
     failures: list[str] = []
     target = max(1, int(run["target_count"]))
     allowed_markets = {item.strip() for item in str(run["markets"]).split(",") if item.strip()}
-    allowed_segments = {item.strip() for item in str(run["segments"]).split(",") if item.strip()}
     if stats["companies"] < target:
         failures.append(f"公司数不足：{stats['companies']}/{target}")
     if int(run["target_count"]) >= int(run["production_min_target"]) and not coverage["production_ready"]:
@@ -1171,7 +1215,7 @@ def verify_research_uat(
             failures.append(f"{name}：官网不是可接受的真实域名")
         if company["country"] not in allowed_markets:
             failures.append(f"{name}：country 不在本批次市场范围")
-        if company["segment"] not in allowed_segments:
+        if not segment_allowed(company["segment"], str(run["segments"])):
             failures.append(f"{name}：segment 不在本批次客户类型范围")
         if company["fit_status"] in {"", "research_needed", "not_fit", "do_not_contact"}:
             failures.append(f"{name}：fit_status 未达到外联候选标准")
@@ -1212,7 +1256,15 @@ def verify_research_uat(
         else:
             accepted_company_fields = {row["field_name"] for row in accepted if row["entity_type"] == "company"}
             required_company_fields = {"website", "country", "segment", "fit_reason", "fit_status"}
-            required_company_fields |= set(_FIT_GATE_VALUES)
+            required_company_fields |= (
+                {"qualification_policy", *SERVICE_FIELDS}
+                if any(
+                    row["field_name"] == "qualification_policy" and row["proposed_value"] == "service_fit_v1"
+                    for row in accepted
+                    if row["entity_type"] == "company"
+                )
+                else set(_FIT_GATE_VALUES)
+            )
             if not required_company_fields.issubset(accepted_company_fields):
                 failures.append(f"{name}：公司正式字段没有全部经过 Claim 批准")
             accepted_contact_fields = {
@@ -1241,6 +1293,10 @@ def verify_research_uat(
                         "SELECT contract_json FROM draft_contracts WHERE draft_id=?", (draft["draft_id"],)
                     )
                     contract = json.loads(contracts[0]["contract_json"]) if contracts else {}
+                    if any(contract.get(f) != "passed" for f in ("fact_check_status", "voice_check_status")):
+                        failures.append(f"{name}：{channel} 事实或语气复核未通过")
+                    if not contract.get("fact_checked_by") or not contract.get("voice_checked_by"):
+                        failures.append(f"{name}：{channel} 缺少事实或语气复核人")
                     require_one_cta(draft["body"], contract.get("primary_cta", ""))
                 except ValidationError:
                     failures.append(f"{name}：{channel} 草稿不是恰好一个 CTA")
@@ -1347,8 +1403,8 @@ def run_research(
                 "必须打开来源页面后保存观察内容",
                 "官网优先；LinkedIn 仅使用无需登录的公开信息",
                 "不猜邮箱，受限和未找到必须明确记录",
-                "按direct/expansion/channel分别研究；买方需出境销售角色，渠道公司需真实客源/组织能力，不混充买方",
-                "扩展和渠道需客群依据、合作假设、反证及下一步；没有中国页面不伪填adjacent",
+                "新研究统一公司池，qualification_policy=service_fit_v1；不设行业配额，不扩展本批次市场",
+                "逐项记录fit_basis、business_signal、service_fit、cooperation_hypothesis、counter_evidence、next_action；假设不伪装为事实",
                 "新研究提供逐字段field_sources；contact提供route_grade与route_purpose，普通页面不等于商务负责人",
                 "达到数量后做高价值对照搜索再择优；集团多品牌需独立合作依据，不凑数",
                 "当地入境DMC、只做本国地接的公司和自营中国地接的一体化竞争者不能冒充潜在买方",

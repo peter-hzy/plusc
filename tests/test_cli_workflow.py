@@ -92,7 +92,7 @@ class CliWorkflowTests(unittest.TestCase):
                     "identity_status": "supported",
                     "identity_evidence_url": "https://example.test/team",
                     "identity_evidence_text": "The team page lists Alex as Product Manager.",
-                    "observed_at": "2026-09-04T00:00:00+00:00",
+                    "observed_at": utc_now(),
                 }
             ],
         )
@@ -231,6 +231,9 @@ class CliWorkflowTests(unittest.TestCase):
                     "recipient_kind": "person",
                     "address_status": "published",
                     "role_reason": "Product manager",
+                    "fact_check_status": "passed",
+                    "voice_check_status": "passed",
+                    "voice_checked_by": "test reviewer",
                     "fact_checked_by": "test reviewer",
                     "product_approved_by": "test owner",
                     "consent": {
@@ -273,6 +276,7 @@ class CliWorkflowTests(unittest.TestCase):
             "channel": "email",
             "received_at": "2026-09-04T00:00:00+00:00",
             "reply_category": "unsubscribe",
+            "source_reference": "isolated test message",
         }
         first = ingest_reply(self.db, payload, "reply-key", "req-reply")
         second = ingest_reply(self.db, payload, "reply-key", "req-reply-retry")
@@ -790,10 +794,10 @@ class CliWorkflowTests(unittest.TestCase):
             ]
         }
         finished = ingest_draft_bundle(self.db, self.run, draft_bundle, "req-drafts")
-        self.assertEqual(finished["next_action"], "review_outreach")
+        self.assertEqual(finished["next_action"], "awaiting_drafts")
         after = research_status(self.db, self.run)
-        self.assertEqual(after["stats"]["review_ready_email"], 1)
-        self.assertEqual(after["stats"]["review_ready_linkedin"], 1)
+        self.assertEqual(after["stats"]["review_ready_email"], 0)
+        self.assertEqual(after["stats"]["review_ready_linkedin"], 0)
 
         output = self.root / "uat.xlsx"
         export_workbook(self.db, output, self.run)

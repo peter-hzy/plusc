@@ -12,5 +12,7 @@
   "unknowns": [],
   "fact_check_status": "needs_review",
   "voice_check_status": "needs_review",
+  "fact_checked_by": "",
+  "voice_checked_by": "",
   "human_review_status": "pending"
 }

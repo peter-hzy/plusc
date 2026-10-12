@@ -86,7 +86,12 @@ def export_json(db: Database, output: Path, run_id: str | None = None) -> dict[s
                 r for r in tables["stop_rules"] if r["scope_value"] in scopes.get(r["scope_type"], set())
             ]
             # 原始导入可能混合多个批次，只在完整工作区备份中提供。
-            tables["raw_imports"] = []
+            reply_hashes = {r["raw_hash"] for r in tables["replies"]}
+            tables["raw_imports"] = [
+                r
+                for r in tables["raw_imports"]
+                if r["schema_name"] == "reply-intake" and r["source_hash"] in reply_hashes
+            ]
         payload["tables"] = tables
         known_costs = {
             e["entity_id"]: json.loads(e["payload_json"])

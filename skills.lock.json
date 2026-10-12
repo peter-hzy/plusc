@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "file_count": 84,
+  "file_count": 88,
   "files": [
     {
       "path": ".env.example",
@@ -39,12 +39,16 @@
       "sha256": "019ced7f5ac3a88e31490ca4384b6d17c4cd249850eab381504cda0857cea65d"
     },
     {
+      "path": "AGENTS.md",
+      "sha256": "9143c6cc4f5d343a91bbd9a7bc4951f5366582b659fb058f9c7bf67670f9915d"
+    },
+    {
       "path": "ARCHITECTURE.md",
-      "sha256": "495f5689d641533db96b8227d0cfe5bf47cbc4f1dd34a4276cd6726d4564062b"
+      "sha256": "cf646960cc756f7f54c7dd5bebb33d21c76e60efaacb655d2a504d37b4ea1fe9"
     },
     {
       "path": "CHANGELOG.md",
-      "sha256": "48eeda6c3ba58569ee64d4e152f9f11b3ae153bc98b5aa5c639f6afc7bfb87f2"
+      "sha256": "4575aacaf408de2c8ffc0376c6cd64d2bd75e9cd389e802e48b59c375efa3425"
     },
     {
       "path": "CONTRIBUTING.md",
@@ -52,7 +56,7 @@
     },
     {
       "path": "docs/cli.md",
-      "sha256": "b187caf49fcc8ff93df8aaba53aa266794fced65af7a767556495f1fdb2cf8a8"
+      "sha256": "9aa591bb281f15d229abad9f156f7bc9c601341482ba0cb79de50a50a7b45ec2"
     },
     {
       "path": "docs/data-model.md",
@@ -64,7 +68,7 @@
     },
     {
       "path": "docs/quickstart.md",
-      "sha256": "4f29ea3608dff4e5d1c2619aa7754af463c3c0ffd1ff9080a41b33c711953e32"
+      "sha256": "cec4f0047ee94762299e1008e455505fe11d245071a8e664df2ad667d598d727"
     },
     {
       "path": "docs/source-adapters.md",
@@ -76,7 +80,7 @@
     },
     {
       "path": "docs/uat.md",
-      "sha256": "327ac3409188a4925c076b822dc0fd00958fe2a8f58834179aeb410a74988179"
+      "sha256": "8100e38709fc80d25406b3a5440fcc17f27fe1db1bbcf0bd912a3f080655ad9c"
     },
     {
       "path": "examples/fictional-reply-unsubscribe.json",
@@ -96,11 +100,11 @@
     },
     {
       "path": "pyproject.toml",
-      "sha256": "778a1061b942778476c32453bb4ecf436cf931f7ccd83cd5345604f070253b90"
+      "sha256": "caff47b96e33c4e19cefffb678a298eecad584c270b096c3ec4c9ca91754fa03"
     },
     {
       "path": "README.md",
-      "sha256": "e186952368425a15a225274df2cf125fb72e35ec26a3f57036237bd743d106a1"
+      "sha256": "5c293e3a4cb98c006afcccb497240f7fbfde2d041ba74ea6ac5ce87c3ec408cd"
     },
     {
       "path": "references/api-mcp-boundaries.md",
@@ -108,19 +112,19 @@
     },
     {
       "path": "references/business-context.md",
-      "sha256": "601920e1b93058044795caf561088bb23115300fd8d386fc27c6b39f87fe3ddc"
+      "sha256": "5e79a11dd7fba6ca85399a4e8979c6269a57075f964a2ecfcbd9c40bc05020af"
     },
     {
       "path": "references/data-contract.md",
-      "sha256": "b55713cb8b96c9794cf27629d2b86d71eb15a53eac82ea2043ec57747dba299b"
+      "sha256": "d6f99fb3f3a38912de2875017c3232b473bb98230c3bdad94ef9652fa0b0c2b3"
     },
     {
       "path": "references/identity-matching.md",
-      "sha256": "0accee55e7bf0c8d0ca974a809cb7191b14933a0affebd53f5f5a5df5b07ad00"
+      "sha256": "eecd51de55b87a2c0af849bac62806bfc636cc3ed935842aa3d8d757f6160a9c"
     },
     {
       "path": "references/open-source-adaptation.md",
-      "sha256": "3b9cad1ee9a082b52869c4967a190bb13648886a2bdb4297daaa8e276226eea5"
+      "sha256": "b8cd0aea7cd31bdeccc2f580a9c44fddda82833f159e86e2c768c25932f6b394"
     },
     {
       "path": "references/outreach-protocol.md",
@@ -132,7 +136,7 @@
     },
     {
       "path": "references/research-protocol.md",
-      "sha256": "0c3ab364d75210675d96d9f9dddf3bf795f9edfde1a28b58335bbb3e3f8bb62c"
+      "sha256": "4214cae06e879b7dd9d99a35f90d6a3fa42e470a93c31a70887fdb01ae3e2506"
     },
     {
       "path": "references/safety-and-compliance.md",
@@ -164,11 +168,11 @@
     },
     {
       "path": "SKILL.md",
-      "sha256": "14893333123e71313d66e94f1fd947cf28cdcccd27ba6c47fba345f2e974c5a4"
+      "sha256": "50516731504c420e6cdb5ed024e9adf65707e1a930ddb55d85cb5a83bdf57a4f"
     },
     {
       "path": "src/inbound_ai_acquisition/__init__.py",
-      "sha256": "c4714ba7c177e7924b109c8e10d14843769311576dd73efdb4d7b4808c4ed6ec"
+      "sha256": "d8010f9e4eea04c4288f1cb55d75ec168bd8b80970bb405190d0321c1db1dc33"
     },
     {
       "path": "src/inbound_ai_acquisition/adapters/__init__.py",
@@ -208,7 +212,7 @@
     },
     {
       "path": "src/inbound_ai_acquisition/application/discovery.py",
-      "sha256": "1b5d71656e5a1709650feb39fd9bc34c8aaa3a499e773debe3bcfa4e8e085664"
+      "sha256": "83a9b987c096b8f8b4a6dd494d51469bb1402ca90b3668ce732e26cbcfbd7366"
     },
     {
       "path": "src/inbound_ai_acquisition/application/legacy_import.py",
@@ -216,15 +220,15 @@
     },
     {
       "path": "src/inbound_ai_acquisition/application/outreach.py",
-      "sha256": "3376e9e47fe48e49beeedfaec9eaa3be03b9ecf0443404f0bfb51abf2d6cc347"
+      "sha256": "ff4edec9de5a560970440284bd382f8e9e23847810ec4b1fc26ec97b800f8e4a"
     },
     {
       "path": "src/inbound_ai_acquisition/application/research.py",
-      "sha256": "537cc78a446af56fbbca8218ec395a8ca142ef79afd23cf5912f95231910e74b"
+      "sha256": "7d28caabd9d364b90414907a19bd86e1a9d441fc559d9ad31a4c89f1c6bc05f0"
     },
     {
       "path": "src/inbound_ai_acquisition/application/services.py",
-      "sha256": "bf25da8f04d6cab89dfd37135d4b317cb7b7b9796a6afdd59f6d2a147ad4d4ed"
+      "sha256": "7cd6a1ddd9ccef65f1f842b88c6a2d8aa0929828b6934ae61108f2e924c220c0"
     },
     {
       "path": "src/inbound_ai_acquisition/audit/__init__.py",
@@ -240,7 +244,7 @@
     },
     {
       "path": "src/inbound_ai_acquisition/cli.py",
-      "sha256": "e1f8644ef19bcd32db5eaa07d9d5249c0af91252b283580bebb89c2af421fc1b"
+      "sha256": "ca7c9429bbd6d9ca423692c35484e72c21964c3a32d5431224bbcb11a4bb17e4"
     },
     {
       "path": "src/inbound_ai_acquisition/config.py",
@@ -251,8 +255,12 @@
       "sha256": "e4bcd0296337c77e79c73e374511722a5b64b6346199334ae3b30da47f4082df"
     },
     {
+      "path": "src/inbound_ai_acquisition/domain/company_fit.py",
+      "sha256": "cfff104d7fc362f9aedeffa6a81b1356aeb77860d8f7c6210f31c9b8aed0540e"
+    },
+    {
       "path": "src/inbound_ai_acquisition/domain/enums.py",
-      "sha256": "a535b4535675339a89437a44ded7f1817c482f0e41662b5540e7f435c54b64f7"
+      "sha256": "c1a488f41b0e6330631ac11be88a10bf23178480dd60dc8ddb9f748ed1172da2"
     },
     {
       "path": "src/inbound_ai_acquisition/domain/policies.py",
@@ -272,11 +280,11 @@
     },
     {
       "path": "src/inbound_ai_acquisition/exporters/json_export.py",
-      "sha256": "2aeb9b1b04adeb0093a3ee4b0e408804c84548a8f9d334a11a12b30b4a2b8ac7"
+      "sha256": "28115723b6c754ace7053cbfdaa549b9c59d070e20906d6c7068aacf81638928"
     },
     {
       "path": "src/inbound_ai_acquisition/exporters/workbook.py",
-      "sha256": "f10f8f303ffd7ca65e5fefb9a137975fc1a4d175b4c491422d47801cc5ce6b6c"
+      "sha256": "98ac5727b51eb7b46c9014e0ff91047a3c2d30316a0d36fa950c60a5f3dfa96f"
     },
     {
       "path": "src/inbound_ai_acquisition/storage/__init__.py",
@@ -296,7 +304,7 @@
     },
     {
       "path": "templates/outreach-brief.template.json",
-      "sha256": "1af54112708413962230e8936994bd1e3ad89547c81fc33ecc9156d31c11765a"
+      "sha256": "0b5843d89a24a788c32173e78973a0b6a2055e36f49e5c59bb47dbb3afd1f1ef"
     },
     {
       "path": "templates/product-profile.template.md",
@@ -308,15 +316,19 @@
     },
     {
       "path": "templates/research-source-plan.template.json",
-      "sha256": "d424e50fb52f268a91daccdaa5c04d4843887b876b8641a3f206a6730600f816"
+      "sha256": "a86ab37ce99756ca60e5c4f5862fee06bb8f3eae10e89d602b7b73931274fefc"
     },
     {
       "path": "templates/voice-profile.template.md",
       "sha256": "0c4d75bd6e2fc191c6da2613e6696c74de8d91ac885e1970f3d3624b16f49f9f"
     },
     {
+      "path": "tests/test_audit_regressions.py",
+      "sha256": "ee8097ba51d2f6d1bbbd604ea661743770e7c91849967fcdf34678b72883cdab"
+    },
+    {
       "path": "tests/test_cli_workflow.py",
-      "sha256": "5d9f9714d7a8d8edb5f2b6562f7d01da9c70e4491f15778cf68712013f920330"
+      "sha256": "23c3f0e8e75a853b5645b5b309414eb397d957e558b3c9f6c4c2935adbae9b92"
     },
     {
       "path": "tests/test_integrated_workflow.py",
@@ -324,7 +336,7 @@
     },
     {
       "path": "tests/test_release_behavior.py",
-      "sha256": "ed096a56d6c9a26eb101303422f30ebdbb37f2052cc14c384816fbe74e275def"
+      "sha256": "3eb6175d54061cbb30b90bb769983532c30d43650cd30f6743604db4c4835f44"
     },
     {
       "path": "tests/test_release_safety.py",
@@ -336,7 +348,11 @@
     },
     {
       "path": "tests/test_tourism_revision.py",
-      "sha256": "d70f8719f2d45bd414aa85054c7f678321b39d415b80e5d1f84b57ad525e2783"
+      "sha256": "08af25338208e58486884a9d46a0fe4e21ea428f810e6b32c15692953f019ed8"
+    },
+    {
+      "path": "tests/test_unified_company_pool.py",
+      "sha256": "3a61df44311738ee7e7641a74439de45637fd139cc55e64641f8e42adb7bc2ae"
     }
   ]
 }

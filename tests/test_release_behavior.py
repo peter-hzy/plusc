@@ -104,6 +104,7 @@ class ReleaseBehaviorTests(unittest.TestCase):
                 "channel": "email",
                 "received_at": "2026-09-18T00:00:00Z",
                 "reply_category": "unsubscribe",
+                "source_reference": "isolated test message",
             },
             "reply",
             "reply",

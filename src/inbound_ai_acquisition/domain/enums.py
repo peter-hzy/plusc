@@ -31,4 +31,4 @@ REPLY_CATEGORIES = {
     "automatic_reply",
 }
 TAKEOVER_REPLIES = {"request_quote", "meeting_requested", "unsubscribe", "complaint"}
-STOP_REPLIES = {"unsubscribe", "complaint", "declined"}
+STOP_REPLIES = {"unsubscribe", "complaint", "declined", "wrong_person", "not_fit"}

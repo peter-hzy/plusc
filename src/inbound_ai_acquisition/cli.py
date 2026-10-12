@@ -107,7 +107,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_workspace(run_create)
     add_request(run_create)
     run_create.add_argument("--market", required=True)
-    run_create.add_argument("--segments", required=True)
+    run_create.add_argument("--segments", default="*", help="默认不限行业；仅用户明确限制时指定类型")
     run_create.add_argument("--target", type=int, default=20)
     run_create.add_argument("--research-only", action="store_true", help="产品未提供时仅研究公司，不伪造产品或准备发送")
     run_create.add_argument("--candidate-pool-multiplier", type=float, default=3.0)

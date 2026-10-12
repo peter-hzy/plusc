@@ -1,11 +1,13 @@
 <div align="center">
 
+当前版本 **1.2.1**：统一公司池执行请求与验收；事实/语气复核、证据时效、回复原文及联系人停发门槛。升级后重新安装 Skill；旧草稿缺复核字段时需重新复核。详见 [CLI合同](docs/cli.md#121-审核与回复门槛)。
+
 # PlusC · 入境游 AI 获客
 
 **先找对公司，再找对入口。用证据判断，用简单结果交付。**
 
 面向中国入境游的本地 B2B 研究工作流<br>
-一个 Codex Skill · 每批默认 20 家 · 一张七列 Excel · 人工审核与发送
+本地项目 + 一个 Codex Skill 入口 · 每批默认 20 家 · 一张七列 Excel · 人工审核与发送
 
 [![CI](https://github.com/peter-hzy/plusc/actions/workflows/ci.yml/badge.svg)](https://github.com/peter-hzy/plusc/actions/workflows/ci.yml)
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)](pyproject.toml)
@@ -19,7 +21,7 @@
 
 ## 它解决什么问题
 
-找到旅行公司并不难，难的是判断：**它面向谁销售、为什么可能与我们合作、该找哪个入口、还有什么没查清。**
+核心是判断：**哪家公司的业务、客群或来访活动与我们的服务相关，为什么可能合作、该找哪个入口、还有什么没查清。**不限旅行社，也不要求企业销售旅游产品。
 
 PlusC 把实际旅游产品、公开来源、公司判断、联系路径、文案和反馈放进同一条可追溯流程。默认从澳大利亚、新西兰开始，其他市场按用户要求设置。它不是货物进口商采集器，也不是无人值守的群发机器人。
 
@@ -42,13 +44,9 @@ PlusC 把实际旅游产品、公开来源、公司判断、联系路径、文�
 
 ### 找什么公司
 
-| 路径 | 判断依据 | 不应推断什么 |
-|---|---|---|
-| 直接业务 | 海外客源销售角色、已有中国相关产品、合作路径 | 在售中国线路 ≠ 正在找新地接 |
-| 业务扩展 | 相近客群与产品形态，说明合作假设、反证和下一步 | 没有中国线路时不伪造现有中国业务 |
-| 渠道合作 | 客源组织或互补能力，说明双方可能如何合作 | 渠道伙伴不混充采购方、不补买方配额 |
+一个公司池、一套服务适配标准，不分行业名额。自身需要服务、组织来访或拥有相关客源的公司均可研究，但必须有具体事实支持服务关联，不能把“有国际业务”当作接待需求。符合条件的保留，每批择优20家。
 
-扩展和渠道路径目前用于**研究与待确认池**，不是可发送许可。当前外联审批仍要求已核准的旅游买方适配事实。
+新研究使用 `qualification_policy=service_fit_v1`：真实业务信号、服务关联、合作假设、反证/限制和下一步逐项绑定来源。旧三路径仅为历史数据兼容，不再用于新研究。研究入选不代表有意向或允许发送；外联仍核验已批准产品、适配事实、联系人、触达依据和人工审核。CLI默认不限行业，只有用户明确要求才传 `--segments`。
 
 搜索可以使用官网、本地协会、展会目录、品牌合作页面、公开职业页面及可访问的行业平台。来源受限、失败与无结果分别记录；达到数量后再做有边界的对照搜索，不为凑数降低标准。
 
@@ -132,7 +130,7 @@ inbound-leads-data/
 ### 3. 创建 20 家研究批次
 
 ```powershell
-inbound-leads run create --workspace $LeadWorkspace --market AU,NZ --segments travel_agency,tour_operator --target 20 --research-only --idempotency-key first-au-nz-batch
+inbound-leads run create --workspace $LeadWorkspace --market AU,NZ --target 20 --research-only --idempotency-key first-au-nz-batch
 ```
 
 已有真实产品时去掉 `--research-only`。记录返回的 `run_id`，后续命令替换其中的 `<run_id>`。

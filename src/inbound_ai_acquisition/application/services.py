@@ -6,6 +6,7 @@ import csv
 import json
 import re
 import shutil
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -476,6 +477,17 @@ def decide_claim(db: Database, claim_id: str, status: str, actor: str, reason: s
                     f"UPDATE {table} SET {row['field_name']}=?,updated_at=? WHERE {id_column}=?",
                     (value, utc_now(), row["entity_id"]),
                 )
+                if row["entity_type"] == "contact" and row["field_name"] == "identity_status":
+                    observed = connection.execute(
+                        "SELECT e.observed_at FROM evidence e JOIN claim_evidence ce ON ce.evidence_id=e.evidence_id "
+                        "WHERE ce.claim_id=? AND e.entity_type='contact' AND e.entity_id=? "
+                        "AND e.conflicts=0 AND e.access_status='accessible' ORDER BY julianday(e.observed_at) DESC LIMIT 1",
+                        (claim_id, row["entity_id"]),
+                    ).fetchone()
+                    connection.execute(
+                        "UPDATE contacts SET last_verified_at=? WHERE contact_id=?",
+                        (observed[0] if observed and value in {"supported", "verified"} else None, row["entity_id"]),
+                    )
                 key_type = None
                 key_value = value
                 if row["entity_type"] == "company" and row["field_name"] == "website":
@@ -569,7 +581,9 @@ def create_draft(db: Database, payload: dict[str, Any], request_id: str) -> dict
                 json.dumps(evidence_ids, ensure_ascii=False),
                 str(payload.get("product_version", "")),
                 body_hash,
-                "review_ready",
+                "review_ready"
+                if all(contract[f] == "passed" for f in ("fact_check_status", "voice_check_status"))
+                else "draft",
                 now,
                 now,
                 None,
@@ -666,6 +680,19 @@ def ingest_reply(db: Database, payload: dict[str, Any], idempotency_key: str, re
     required = {"message_id", "contact_id", "channel", "received_at", "reply_category"}
     if not required.issubset(payload):
         raise ValidationError("回复缺少必填字段")
+    if payload["channel"] not in {"email", "linkedin"}:
+        raise ValidationError("回复 channel 必须是 email 或 linkedin")
+    try:
+        received = datetime.fromisoformat(str(payload["received_at"]).replace("Z", "+00:00"))
+        if received.tzinfo is None:
+            raise ValueError()
+    except (ValueError, TypeError):
+        raise ValidationError("回复 received_at 必须是含时区的日期") from None
+    for field in ("source_reference", "raw_text"):
+        if field in payload and not isinstance(payload[field], str):
+            raise ValidationError(f"{field} 必须是文本")
+    if not any(isinstance(payload.get(f), str) and payload[f].strip() for f in ("source_reference", "raw_text")):
+        raise ValidationError("回复必须提供可定位的 source_reference 或原文 raw_text")
     with db.transaction() as connection:
         prior = db.idempotency_lookup(connection, idempotency_key, payload)
         if prior:
@@ -674,6 +701,24 @@ def ingest_reply(db: Database, payload: dict[str, Any], idempotency_key: str, re
         if not contact:
             raise ValidationError("回复引用不存在的联系人")
         reply_id = new_id("rp")
+        source_reference = str(payload.get("source_reference", ""))
+        if payload.get("raw_text"):
+            raw_id = new_id("raw")
+            connection.execute(
+                "INSERT OR IGNORE INTO raw_imports VALUES (?,?,?,?,?,?)",
+                (
+                    raw_id,
+                    str(payload.get("source_reference") or reply_id),
+                    canonical_hash(payload),
+                    "reply-intake",
+                    json.dumps(payload, ensure_ascii=False),
+                    utc_now(),
+                ),
+            )
+            raw_id = connection.execute(
+                "SELECT raw_import_id FROM raw_imports WHERE source_hash=?", (canonical_hash(payload),)
+            ).fetchone()[0]
+            source_reference = source_reference or f"raw_import:{raw_id}"
         connection.execute(
             "INSERT INTO replies(reply_id,external_message_id,contact_id,channel,received_at,source_reference,category,confirmed_needs,unknown_needs,next_action,needs_human_takeover,do_not_contact,raw_hash,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (
@@ -682,7 +727,7 @@ def ingest_reply(db: Database, payload: dict[str, Any], idempotency_key: str, re
                 payload["contact_id"],
                 payload["channel"],
                 payload["received_at"],
-                str(payload.get("source_reference", "")),
+                source_reference,
                 payload["reply_category"],
                 str(payload.get("confirmed_needs", "")),
                 str(payload.get("unknown_needs", "")),

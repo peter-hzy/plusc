@@ -54,6 +54,9 @@ class TourismRevisionTests(unittest.TestCase):
                 "recipient_kind": "person",
                 "address_status": "published",
                 "role_reason": "China product owner",
+                "fact_check_status": "passed",
+                "voice_check_status": "passed",
+                "voice_checked_by": "test reviewer",
                 "fact_checked_by": "test-human",
                 "product_approved_by": "test-human",
                 "consent": {

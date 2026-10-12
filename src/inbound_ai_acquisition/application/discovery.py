@@ -50,6 +50,7 @@ def discovery_coverage(db: Database, run_id: str) -> dict[str, Any]:
     categories = {row["source_category"] for row in performance}
     found_segments = {str(row["segment_hint"]).strip() for row in candidates if str(row["segment_hint"]).strip()}
     requested_segments = {item.strip() for item in str(run["segments"]).split(",") if item.strip()}
+    requested_segments.discard("*")
     recommended_pool = max(target, math.ceil(target * multiplier))
     warnings: list[str] = []
     if selected < target:

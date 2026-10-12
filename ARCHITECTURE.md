@@ -44,3 +44,6 @@ Company / Contact：已接受、可运营的正式字段
 ## 明确不做
 
 V1 不建设 CRM、Web UI、Postgres、多租户、无人值守调度、自动邮件发送、LinkedIn 自动化、自动报价或多 Agent 销售团队。
+# 项目与Skill边界
+
+这是完整的本地获客项目：Skill是AI操作入口；application/domain负责数据与规则校验，adapters承接真实来源，SQLite保存证据/状态，exporters输出结果。不新增CRM或并行客户库。新公司研究采用统一服务场景合同service_fit_v1，不限行业；旧三路径仅兼容历史记录。行业限制只有用户明确指定时生效。研究结论、事实审核和外联批准仍分开，规则校验不代替原文语义核验。

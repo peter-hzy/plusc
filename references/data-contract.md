@@ -199,6 +199,8 @@ Evidence 是观察，Claim 是待决定事实，正式公司/联系人字段只�
 
 ## 13. 研究扩展合同（无需改变schema）
 
+新研究统一提交qualification_policy=service_fit_v1，以及fit_basis(supported/hypothesis)、business_signal、service_fit、cooperation_hypothesis、counter_evidence、next_action。这些和原有fit_reason/fit_status一起保存为待审Claim，复用既有数据库，不新增表。新合同必须提供field_sources逐字段绑定；绑定有效不证明原文语义，需实际复核。hypothesis不得升priority_chat；supported不等于有采购意向。外联仍要求已批准的产品、事实、身份、适用触达依据和人工审核。新合同不使用下述旧行业/路径字段作为门槛；历史数据没有版本标记则保持旧合同，不能无证据自动升级。新CLI批次默认segments=*，明确指定其他值表示用户要求的行业限制。
+
 source bundle公司可新增qualification_path（direct/expansion/channel）、audience_fit、cooperation_hypothesis、counter_evidence、next_action、group_key、independent_unit_reason。均保存为待审Claim，不直接写成正式事实；预览按accepted再proposed覆盖。扩展和渠道的适用门槛见research-protocol。同一group_key多个公司需要各自独立合作依据，否则验收失败；此检查不能自动发现未提供的集团关系。
 
 contact新增route_grade（R0/R1/R2/R3）、route_purpose（business/general/unknown/unsuitable），也保存为Claim。旧数据保守默认R3/unknown。R1具名相关人员、R2相关部门均要求business及职责说明；R1还需姓名。R3为通用转交，R0缺失；unsuitable、contradicted不能计有效入口。business_route_count与handoff_route_count分开，不把普通页面算职责已确认。
@@ -206,3 +208,15 @@ contact新增route_grade（R0/R1/R2/R3）、route_purpose（business/general/unk
 公司/联系人可提供field_sources：字段名到已成功读取的本实体来源URL数组。提供此映射后，每个提交字段都必须有绑定；未知URL或缺字段报错回滚。旧bundle未提供时仍兼容，但宽泛证据关联不证明逐字段语义正确，必须人工复核。新研究应提供绑定，包括route_grade/route_purpose；hypothesis字段是有依据的分析而非对方采购事实。
 
 名单验收检查正式及待审身份上的停发、关键公司阻塞缺口、入口与集团计数。R3可交待审名单，但不是外联批准。research_delivery_status表示名单准备，旧stage仅为工作流兼容，不强制准备文案。
+
+## 1.2.1 审核与回复门槛
+
+新研究统一使用 `service_fit_v1`；`research run` 返回的执行请求和 `research verify --scope outreach` 均使用同一合同，历史无标记数据保留旧合同。
+
+草稿 `outreach_contract` 必须显式记录 `fact_check_status`、`voice_check_status`（`needs_review` / `pending` / `passed` / `failed`），及 `fact_checked_by`、`voice_checked_by`。未通过的草稿保存为 `draft`；只有两个状态均为 `passed` 才进入 `review_ready`，批准仍检查复核人、产品、身份、证据和触达依据。顶层状态可兼容输入，但与合同冲突时拒绝，不再忽略 `failed`。已保存的 `draft` 可重交同一 draft bundle，只更新这四个复核字段；正文、引用、收件目标或已批准草稿的变更仍需重建。状态是人工复核记录，不能由系统替人声称完成检查。
+
+批准和发送登记均要求联系人最近30天核验、引用的公司证据最近90天/联系人证据最近30天，适配字段也须有近90天已接受且可访问、无冲突的来源。日期缺失、无时区、未来或超期均阻止外联。过期时实际重新打开来源，提交带真实 `observed_at` 的增量 source bundle，人工接受新 Claim 后重建草稿；不能只改日期冒充复核。接受身份 Claim 时以其来源观察日期更新 `last_verified_at`。
+
+回复至少提供可定位的 `source_reference` 或 `raw_text`。原文保存在已有 `raw_imports`，仅原文输入会生成内部引用；全量备份及所属批次 JSON 可回读该回复原文，不导出其他批次原文。重复导入仍幂等。Excel 七列结构保持，结果列优先显示各联系人的最新回复、确认/未知需求、下一步与接管/停发状态。
+
+`wrong_person`、`not_fit` 停止当前联系人及等价身份的后续触达，不将整家公司标记不可联系；需人工核实新角色或按既有 stop release 流程解除。报价、价格、合同、投诉等继续转人工。系统没有自动发送、报价、CRM或成交跟踪闭环。

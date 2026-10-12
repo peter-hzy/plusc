@@ -1,9 +1,10 @@
 # CLI 命令
 
-## 旅游公司研究与外联分开验收
+## 公司研究与外联分开验收
 
 - 每批默认20家公司。无真实产品且用户要求通用研究时，`run create --research-only` 保留空产品版本；不得伪造产品资料。
 - 普通`run create`需要产品卡，不要求语气卡；语气卡在准备文案时补齐。
+- `--segments`默认`*`（不限行业）；仅用户明确限定时填写具体行业。新source bundle公司使用`qualification_policy=service_fit_v1`，必填字段和逐字段来源绑定见references/data-contract.md；无标记历史数据仅按旧规则兼容，不自动重判。
 - `research verify --scope companies --workbook ...`检查公司数量、证据、公开对接入口和单表7列输出；不要求具名联系人、个人邮箱或草稿。缺入口保留公司，但交付验收不通过。
 - 默认`--scope outreach`继续使用事实批准、草稿与渠道门禁。名单检查通过不代表产品匹配已核准或可发送。
 - schema v5将联系人邮箱/LinkedIn唯一约束限定于同一公司快照，允许跨批次重新研究；同一工作区的停止联系检查仍跨批次生效。正式旧库需用户确认后运行`migrate --workspace ...`，迁移自动备份；不同工作区不共享停发记录。
@@ -56,3 +57,15 @@ skill install|status
 `export workbook`默认单表7列；`export json --run`只导出关联该批次实体，原始混批导入不随批次输出。完整工作区备份仍可另行执行。
 
 `skill install --replace`会保留旧安装包至同级.inbound-acquisition-backups目录；status同时检查非发布清单的残留文件。旧tests/scripts不再混进新的轻量Skill包，运行测试使用源项目tests。
+
+## 1.2.1 审核与回复门槛
+
+新研究统一使用 `service_fit_v1`；`research run` 返回的执行请求和 `research verify --scope outreach` 均使用同一合同，历史无标记数据保留旧合同。
+
+草稿 `outreach_contract` 必须显式记录 `fact_check_status`、`voice_check_status`（`needs_review` / `pending` / `passed` / `failed`），及 `fact_checked_by`、`voice_checked_by`。未通过的草稿保存为 `draft`；只有两个状态均为 `passed` 才进入 `review_ready`，批准仍检查复核人、产品、身份、证据和触达依据。顶层状态可兼容输入，但与合同冲突时拒绝，不再忽略 `failed`。已保存的 `draft` 可重交同一 draft bundle，只更新这四个复核字段；正文、引用、收件目标或已批准草稿的变更仍需重建。状态是人工复核记录，不能由系统替人声称完成检查。
+
+批准和发送登记均要求联系人最近30天核验、引用的公司证据最近90天/联系人证据最近30天，适配字段也须有近90天已接受且可访问、无冲突的来源。日期缺失、无时区、未来或超期均阻止外联。过期时实际重新打开来源，提交带真实 `observed_at` 的增量 source bundle，人工接受新 Claim 后重建草稿；不能只改日期冒充复核。接受身份 Claim 时以其来源观察日期更新 `last_verified_at`。
+
+回复至少提供可定位的 `source_reference` 或 `raw_text`。原文保存在已有 `raw_imports`，仅原文输入会生成内部引用；全量备份及所属批次 JSON 可回读该回复原文，不导出其他批次原文。重复导入仍幂等。Excel 七列结构保持，结果列优先显示各联系人的最新回复、确认/未知需求、下一步与接管/停发状态。
+
+`wrong_person`、`not_fit` 停止当前联系人及等价身份的后续触达，不将整家公司标记不可联系；需人工核实新角色或按既有 stop release 流程解除。报价、价格、合同、投诉等继续转人工。系统没有自动发送、报价、CRM或成交跟踪闭环。

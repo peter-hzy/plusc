@@ -1,7 +1,7 @@
 {
   "run_id": "",
   "market": [],
-  "client_types": [],
+  "client_types": ["*"],
   "product_scenario": "",
   "target_count": 20,
   "recommended_candidate_pool": 60,
@@ -16,9 +16,9 @@
       "contribution": "not_measured"
     },
     {
-      "source_category": "tourism_association_directory",
+      "source_category": "association_directory",
       "source_role": "discovery",
-      "target_signal": "目标市场中的旅行社、批发商或 DMC 候选",
+      "target_signal": "相关业务、客群或来访组织线索；会员身份不等于需求",
       "query_or_entry_url": "",
       "coverage": "",
       "access_status": "not_searched",
@@ -27,7 +27,7 @@
     {
       "source_category": "trade_show_exhibitor_directory",
       "source_role": "discovery",
-      "target_signal": "团组、MICE、目的地产品或合作窗口",
+      "target_signal": "相关地点和活动日期、企业角色；不推断海外人员到场或有游玩需求",
       "query_or_entry_url": "",
       "coverage": "",
       "access_status": "not_searched",

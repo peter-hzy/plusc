@@ -37,7 +37,6 @@ def export_workbook(db: Database, output: Path, run_id: str | None = None) -> di
     review = [item for rid in runs for item in research_status(db, rid)["review"]]
     review.sort(
         key=lambda item: (
-            item["company_preview"].get("competitive_position") == "mixed",
             item["company_preview"].get("fit_status") != "priority_chat",
             item["company_preview"]["name_original"].casefold(),
         )
@@ -93,8 +92,10 @@ def export_workbook(db: Database, output: Path, run_id: str | None = None) -> di
             kind = "官网联系页（转交路径待确认）"
         route = (recipient or contact_page or "未找到") + "\n" + kind
         route += "\n" + {
-            "R1": "具名职责入口（以审核状态为准）", "R2": "部门职责入口（以审核状态为准）",
-            "R3": "通用转交，商务用途待确认", "R0": "入口缺失",
+            "R1": "具名职责入口（以审核状态为准）",
+            "R2": "部门职责入口（以审核状态为准）",
+            "R3": "通用转交，商务用途待确认",
+            "R0": "入口缺失",
         }.get(contact.get("route_grade", "R3"), "入口待核验")
         if contact.get("route_purpose") == "unsuitable":
             route += "；不适合本次业务联系"
@@ -118,10 +119,32 @@ def export_workbook(db: Database, output: Path, run_id: str | None = None) -> di
             state += "；" + "；".join(gaps)
         if company.get("risk_notes"):
             state += "；" + company["risk_notes"]
-        if company.get("next_action"):
+        if item.get("replies"):
+            replies = item["replies"]
+            latest = {r["contact_id"]: r for r in reversed(replies)}.values()
+            state = (
+                "\n".join(
+                    "回复："
+                    + r["category"]
+                    + "；已确认："
+                    + (r["confirmed_needs"] or "无")
+                    + "；待确认："
+                    + (r["unknown_needs"] or "无")
+                    + "；下一步："
+                    + (r["next_action"] or "人工处理回复")
+                    + ("；需人工接管" if r["needs_human_takeover"] else "")
+                    + ("；该联系人停止联系" if r["do_not_contact"] else "")
+                    for r in latest
+                )
+                + "\n研究/草稿记录："
+                + state
+            )
+        elif company.get("next_action"):
             state += "；" + company["next_action"]
         reason = company["fit_reason"]
-        if company.get("qualification_path") in {"expansion", "channel"}:
+        if company.get("qualification_policy") == "service_fit_v1":
+            reason = company["business_signal"] + "\n服务关联：" + company["service_fit"]
+        elif company.get("qualification_path") in {"expansion", "channel"}:
             reason = ("扩展假设" if company["qualification_path"] == "expansion" else "渠道合作假设") + "：" + reason
         if company.get("cooperation_hypothesis"):
             reason += "\n合作假设：" + company["cooperation_hypothesis"]
