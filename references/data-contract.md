@@ -220,3 +220,11 @@ contact新增route_grade（R0/R1/R2/R3）、route_purpose（business/general/unk
 回复至少提供可定位的 `source_reference` 或 `raw_text`。原文保存在已有 `raw_imports`，仅原文输入会生成内部引用；全量备份及所属批次 JSON 可回读该回复原文，不导出其他批次原文。重复导入仍幂等。Excel 七列结构保持，结果列优先显示各联系人的最新回复、确认/未知需求、下一步与接管/停发状态。
 
 `wrong_person`、`not_fit` 停止当前联系人及等价身份的后续触达，不将整家公司标记不可联系；需人工核实新角色或按既有 stop release 流程解除。报价、价格、合同、投诉等继续转人工。系统没有自动发送、报价、CRM或成交跟踪闭环。
+
+## 1.2.2 实跑缺口与失败执行记录
+
+公司或contact可提交research_gaps数组，每项必须包含field_name、business_impact及JSON布尔blocking。只保存open缺口；重复提交同一实体/字段更新说明，不重复新增，也不通过省略或blocking=false解除已有阻塞。产品语言、人数、研学保障、季节库存和合作条件不明时明确写待确认；影响批准的条件blocking=true。缺口不是事实Claim或人工批准。沿用research_gaps表及已有草稿/批准门禁，不修改数据库结构。
+
+source bundle可附source_attempts数组，记录未取得有效观察的真实执行：source_url、带时区的实际observed_at、outcome（SOURCE_OUTCOMES中除succeeded）、error_code和布尔retryable；可附原始摘要/响应哈希供审计。成功观察仍进入公司/contact sources。相同批次、相同完整attempt重放只保留一条历史执行记录；正常研究执行日志仍逐次增加。错误记录缺时间时先保留原始ledger，不补造时间；实际重试另记真实时间。HTTP成功、安全检查页、空正文与取得有效业务观察必须分开；不得按文本长度替代语义判断。research status返回source_outcomes分类计数，JSON包含完整source_runs。
+
+转交入口增量匹配要求相同实体、无身份冲突并有共同公开入口；不同部门或不唯一匹配不自动合并。已有正式草稿按其原收件目标导出；没有草稿时优先合适用途、已支持身份和可用邮箱/LinkedIn。历史重复联系人保留，不能无授权删除或迁移。内部文案提案仍放私有工作区，proposed Claim不会自动成为正式草稿、人工批准或发送许可。

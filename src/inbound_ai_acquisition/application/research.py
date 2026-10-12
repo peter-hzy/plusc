@@ -10,6 +10,7 @@ from urllib.parse import urlsplit
 
 from ..adapters.registry import built_in_adapters
 from ..domain.company_fit import SERVICE_FIELDS, segment_allowed, validate_service_fit
+from ..domain.enums import SOURCE_OUTCOMES
 from ..domain.policies import require_one_cta
 from ..errors import StateError, ValidationError
 from ..storage.database import Database, canonical_hash, new_id, utc_now
@@ -138,11 +139,13 @@ def _insert_source_run(
     result_count: int,
     error_code: str = "",
     retryable: bool = False,
+    observed_at: str | None = None,
+    source_run_id: str | None = None,
 ) -> str:
-    source_run_id = new_id("src")
-    now = utc_now()
+    source_run_id = source_run_id or new_id("src")
+    now = observed_at or utc_now()
     connection.execute(
-        "INSERT INTO source_runs VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO source_runs VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(source_run_id) DO NOTHING",
         (
             source_run_id,
             run_id,
@@ -306,6 +309,36 @@ def ingest_source_bundle(db: Database, run_id: str, bundle: dict[str, Any], requ
     with db.transaction() as connection:
         _run_exists(connection, run_id)
         now = utc_now()
+        attempts = bundle.get("source_attempts", [])
+        if not isinstance(attempts, list):
+            raise ValidationError("source_attempts 必须是数组")
+        for attempt in attempts:
+            if not isinstance(attempt, dict):
+                raise ValidationError("source_attempts 条目必须是 object")
+            outcome = attempt.get("outcome")
+            # Successful observations belong to entity sources; failed reads never create claims.
+            if not isinstance(outcome, str) or outcome not in SOURCE_OUTCOMES - {"succeeded"}:
+                raise ValidationError("source_attempts 只记录未取得有效观察的真实执行结果")
+            url = attempt.get("source_url", "")
+            if not isinstance(url, str) or not url.startswith(("http://", "https://")) or not urlsplit(url).hostname:
+                raise ValidationError("source_attempts 必须包含公开来源URL")
+            observed_at = attempt.get("observed_at", "")
+            try:
+                observed_time = datetime.fromisoformat(observed_at.replace("Z", "+00:00"))
+                if observed_time.tzinfo is None or observed_time > datetime.now(timezone.utc):
+                    raise ValueError("invalid observation time")
+            except (AttributeError, TypeError, ValueError) as exc:
+                raise ValidationError("source_attempts 需要真实且带时区的 observed_at") from exc
+            retryable = attempt.get("retryable", False)
+            if not isinstance(retryable, bool):
+                raise ValidationError("retryable 必须是 JSON boolean")
+            _insert_source_run(
+                connection, run_id=run_id, adapter_id="codex_bridge",
+                query_summary=json.dumps(attempt, ensure_ascii=False, sort_keys=True),
+                outcome=outcome, result_count=0, error_code=str(attempt.get("error_code", "")),
+                retryable=retryable, observed_at=observed_at,
+                source_run_id="src_" + canonical_hash({"run_id": run_id, "attempt": attempt})[:32],
+            )
         for entry in source_plan:
             for required in ("source_category", "query_or_entry_url"):
                 if not str(entry.get(required, "")).strip():
@@ -602,7 +635,12 @@ def ingest_source_bundle(db: Database, run_id: str, bundle: dict[str, Any], requ
             route_key = tuple(
                 str(contact.get(k, "")).strip().casefold() for k in ("public_email", "linkedin_url", "full_name")
             )
-            existing_contact = None
+            incoming_urls = {
+                normalize_url(str(s.get("source_url", ""))) for s in contact_sources
+                if s.get("outcome", "succeeded") == "succeeded"
+                and s.get("access_status", "accessible") == "accessible" and not s.get("conflicts")
+            }
+            matching_contacts = []
             for stored in connection.execute("SELECT * FROM contacts WHERE company_id=?", (company_id,)).fetchall():
                 preview = dict(stored)
                 for fact in connection.execute(
@@ -611,15 +649,27 @@ def ingest_source_bundle(db: Database, run_id: str, bundle: dict[str, Any], requ
                     (stored["contact_id"],),
                 ):
                     preview[fact["field_name"]] = fact["proposed_value"]
-                if (
-                    tuple(
-                        str(preview.get(k, "")).strip().casefold()
-                        for k in ("public_email", "linkedin_url", "full_name")
-                    )
-                    == route_key
-                ):
-                    existing_contact = stored
-                    break
+                stored_key = tuple(str(preview.get(k, "")).strip().casefold()
+                                   for k in ("public_email", "linkedin_url", "full_name"))
+                if any(old and new and old != new for old, new in zip(stored_key, route_key, strict=True)):
+                    continue
+                shared_identity = (preview.get("contact_role") == contact.get("contact_role", "primary")
+                                   and any(old and old == new for old, new in zip(stored_key, route_key, strict=True)))
+                stored_urls = {r[0] for r in connection.execute(
+                    "SELECT source_url FROM evidence WHERE entity_type='contact' AND entity_id=? "
+                    "AND purpose='contact_route' AND access_status='accessible' AND conflicts=0",
+                    (stored["contact_id"],),
+                )}
+                same_handoff = (preview.get("contact_role") == contact.get("contact_role", "primary") == "handoff"
+                                and not stored_key[2] and not route_key[2] and bool(stored_urls & incoming_urls)
+                                and (preview.get("role_scope") == contact.get("why_contact", contact.get("role_scope", ""))
+                                     or preview.get("route_grade", "R3") == contact.get("route_grade", "R3") == "R3"))
+                if shared_identity or same_handoff:
+                    matching_contacts.append((int(shared_identity), stored))
+            # Ambiguous matches remain separate for human review; never collapse conflicting identities.
+            best_score = max((score for score, _ in matching_contacts), default=0)
+            best_matches = [row for score, row in matching_contacts if score == best_score]
+            existing_contact = best_matches[0] if len(best_matches) == 1 else None
             contact_id = existing_contact["contact_id"] if existing_contact else new_id("ct")
             if not existing_contact:
                 connection.execute(
@@ -710,6 +760,31 @@ def ingest_source_bundle(db: Database, run_id: str, bundle: dict[str, Any], requ
                         grade="primary" if identity_status == "verified" else "strong",
                     )
                     changed += 1
+            for entity_type, entity_id, record in (("company", company_id, company), ("contact", contact_id, contact)):
+                gaps = record.get("research_gaps", [])
+                if not isinstance(gaps, list):
+                    raise ValidationError("research_gaps 必须是数组")
+                for gap in gaps:
+                    if (not isinstance(gap, dict) or gap.get("status", "open") != "open"
+                            or not isinstance(gap.get("blocking"), bool)
+                            or any(not isinstance(gap.get(k), str) or not gap[k].strip()
+                                   for k in ("field_name", "business_impact"))):
+                        raise ValidationError("research_gaps 需要 field_name、business_impact 和布尔 blocking")
+                    existing_gap = connection.execute(
+                        "SELECT * FROM research_gaps WHERE entity_type=? AND entity_id=? AND field_name=? "
+                        "AND status='open'", (entity_type, entity_id, gap["field_name"].strip()),
+                    ).fetchone()
+                    if existing_gap:
+                        connection.execute(
+                            "UPDATE research_gaps SET business_impact=?,blocking=? WHERE gap_id=?",
+                            (gap["business_impact"].strip(), int(bool(existing_gap["blocking"]) or gap["blocking"]),
+                             existing_gap["gap_id"]),
+                        )
+                    else:
+                        connection.execute("INSERT INTO research_gaps VALUES (?,?,?,?,?,?,?,?,?)", (
+                            new_id("gap"), entity_type, entity_id, gap["field_name"].strip(),
+                            gap["business_impact"].strip(), int(gap["blocking"]), "open", now, None,
+                        ))
             if identity_status not in {"supported", "verified"}:
                 if not connection.execute(
                     "SELECT 1 FROM research_gaps WHERE entity_type='contact' AND entity_id=? "
@@ -1023,6 +1098,9 @@ def research_status(db: Database, run_id: str) -> dict[str, Any]:
         "status": "succeeded",
         "run": run[0],
         "stage": run[0]["next_action"],
+        "source_outcomes": {row["outcome"]: row["n"] for row in db.query(
+            "SELECT outcome,COUNT(*) AS n FROM source_runs WHERE run_id=? GROUP BY outcome", (run_id,),
+        )},
         "stats": stats,
         "coverage": discovery_coverage(db, run_id),
         "candidates": candidates,

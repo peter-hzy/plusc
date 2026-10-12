@@ -66,7 +66,12 @@ def export_workbook(db: Database, output: Path, run_id: str | None = None) -> di
         contacts = {r["contact_id"]: r for r in item["contact_previews"]}
         drafts = item["drafts"]
         contact = contacts.get(drafts[-1]["contact_id"]) if drafts else None
-        contact = contact or next(iter(contacts.values()), {})
+        contact = contact or max(contacts.values(), key=lambda row: (
+            row.get("route_purpose") != "unsuitable",
+            row.get("identity_status") in {"supported", "verified"},
+            bool(row.get("public_email") or row.get("linkedin_url")),
+            {"R1": 3, "R2": 2, "R3": 1}.get(row.get("route_grade"), 0),
+        ), default={})
         contract = {}
         if drafts:
             rows = db.query("SELECT contract_json FROM draft_contracts WHERE draft_id=?", (drafts[-1]["draft_id"],))
@@ -181,12 +186,13 @@ def export_workbook(db: Database, output: Path, run_id: str | None = None) -> di
                 56,
                 max(
                     sum(
-                        max(1, (sum(2 if ord(c) > 255 else 1 for c in line) + int(width) - 1) // int(width))
+                        max(1, (sum(2 if ord(c) > 255 else 1 for c in line) + int(width * 0.65) - 1)
+                            // int(width * 0.65))
                         for line in str(value).split("\n")
                     )
                     for value, width in zip(values, widths, strict=True)
                 )
-                * 16,
+                * 18 + 24,
             ),
         )
         if drafts:

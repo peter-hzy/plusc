@@ -35,13 +35,17 @@ class CodexBridgeAdapter:
             raise ValidationError(f"codex_bridge outcome 不合法：{outcome}")
         if outcome == "succeeded" and not observations:
             raise ValidationError("codex_bridge succeeded 必须包含至少一条 observation")
+        if outcome != "succeeded" and observations:
+            raise ValidationError("未成功的读取不能携带事实 observation")
+        if not isinstance(request.get("retryable", False), bool):
+            raise ValidationError("retryable 必须是 JSON boolean")
         return SourceResult(
             adapter_id="codex_bridge",
             outcome=outcome,
             query_fingerprint=canonical_hash(request.get("query_summary", "")),
             observations=observations,
             error_code=str(request.get("error_code", "")),
-            retryable=bool(request.get("retryable", False)),
+            retryable=request.get("retryable", False),
         )
 
     discover = _execute

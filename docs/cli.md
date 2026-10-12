@@ -69,3 +69,11 @@ skill install|status
 回复至少提供可定位的 `source_reference` 或 `raw_text`。原文保存在已有 `raw_imports`，仅原文输入会生成内部引用；全量备份及所属批次 JSON 可回读该回复原文，不导出其他批次原文。重复导入仍幂等。Excel 七列结构保持，结果列优先显示各联系人的最新回复、确认/未知需求、下一步与接管/停发状态。
 
 `wrong_person`、`not_fit` 停止当前联系人及等价身份的后续触达，不将整家公司标记不可联系；需人工核实新角色或按既有 stop release 流程解除。报价、价格、合同、投诉等继续转人工。系统没有自动发送、报价、CRM或成交跟踪闭环。
+
+## 1.2.2 真实研究增量与缺口
+
+research run --source-bundle支持公司/contact的research_gaps与顶层source_attempts，具体字段见references/data-contract.md。影响批准的产品未知项用open/blocking缺口；不能把其省略或标false来解除阻塞。名单verify会显式提示关键公司缺口，外联门禁保留。
+
+同一公开转交入口补邮箱优先复用已有联系人；匹配明确地址优先于旧空入口，冲突或不同部门不自动合并。原历史记录保留。Excel没有正式草稿时优先展示可用入口，正式草稿仍展示其原目标，中文长限制使用保守行高。
+
+source_attempts只记录未取得有效观察的真实执行，并需要实际带时区时间；失败不能生成Evidence或Claim。research status返回source_outcomes；export json可回读失败记录。重放不重复同一历史失败，正常研究执行日志仍逐次增加。内部文案提案仍与正式草稿分开，proposed事实不会自动获批。

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "file_count": 88,
+  "file_count": 89,
   "files": [
     {
       "path": ".env.example",
@@ -40,7 +40,7 @@
     },
     {
       "path": "AGENTS.md",
-      "sha256": "9143c6cc4f5d343a91bbd9a7bc4951f5366582b659fb058f9c7bf67670f9915d"
+      "sha256": "e0f59a01cb506740fde44e250a1d35e26fb495eeb50aa816db8fc2bbfcd4ce44"
     },
     {
       "path": "ARCHITECTURE.md",
@@ -48,7 +48,7 @@
     },
     {
       "path": "CHANGELOG.md",
-      "sha256": "4575aacaf408de2c8ffc0376c6cd64d2bd75e9cd389e802e48b59c375efa3425"
+      "sha256": "41104776e13f9bf1610b68894f88e297ea34aea9c3aa7ab63d00c07d8a2c7604"
     },
     {
       "path": "CONTRIBUTING.md",
@@ -56,7 +56,7 @@
     },
     {
       "path": "docs/cli.md",
-      "sha256": "9aa591bb281f15d229abad9f156f7bc9c601341482ba0cb79de50a50a7b45ec2"
+      "sha256": "48a860dbc5ef3d465cbce71befa90a2cc3c48b263ba930caaf859bf5a6cfa9da"
     },
     {
       "path": "docs/data-model.md",
@@ -100,11 +100,11 @@
     },
     {
       "path": "pyproject.toml",
-      "sha256": "caff47b96e33c4e19cefffb678a298eecad584c270b096c3ec4c9ca91754fa03"
+      "sha256": "49dbf22c96a832e1a64a09619c6d7c37ea26311d0b3628442b2b3bf194b0472d"
     },
     {
       "path": "README.md",
-      "sha256": "5c293e3a4cb98c006afcccb497240f7fbfde2d041ba74ea6ac5ce87c3ec408cd"
+      "sha256": "068b2f56768ec745d9fc32475ddab51fb1752e094b702550b7eea017d8cd95dc"
     },
     {
       "path": "references/api-mcp-boundaries.md",
@@ -116,7 +116,7 @@
     },
     {
       "path": "references/data-contract.md",
-      "sha256": "d6f99fb3f3a38912de2875017c3232b473bb98230c3bdad94ef9652fa0b0c2b3"
+      "sha256": "70eecc3e2a72a9017763f67d4ac0e05ef07ba0902dbeaa6abd978c892bb81e9c"
     },
     {
       "path": "references/identity-matching.md",
@@ -136,7 +136,7 @@
     },
     {
       "path": "references/research-protocol.md",
-      "sha256": "4214cae06e879b7dd9d99a35f90d6a3fa42e470a93c31a70887fdb01ae3e2506"
+      "sha256": "c64039e272e615aaced2a3e72b1fc80045e87c93d1cd8c55d1b9d3d05a1b469a"
     },
     {
       "path": "references/safety-and-compliance.md",
@@ -168,11 +168,11 @@
     },
     {
       "path": "SKILL.md",
-      "sha256": "50516731504c420e6cdb5ed024e9adf65707e1a930ddb55d85cb5a83bdf57a4f"
+      "sha256": "5391395e06dc536d3709f1ad79955f42e2d789278fbbe0fab5eac2c51561459f"
     },
     {
       "path": "src/inbound_ai_acquisition/__init__.py",
-      "sha256": "d8010f9e4eea04c4288f1cb55d75ec168bd8b80970bb405190d0321c1db1dc33"
+      "sha256": "250e552994ec25dfe5d484799ea0772bd21489921aebfa452710ab2da93f9e19"
     },
     {
       "path": "src/inbound_ai_acquisition/adapters/__init__.py",
@@ -188,7 +188,7 @@
     },
     {
       "path": "src/inbound_ai_acquisition/adapters/codex_bridge.py",
-      "sha256": "96d4e0b4d5016cb0561d250d29410e5164a0551189d46750cd1f906e339d95b9"
+      "sha256": "dd5d15b979767ddf767755e62bede2c3b54c9fd0b4510b834a0b582be3e2d8ac"
     },
     {
       "path": "src/inbound_ai_acquisition/adapters/directory_csv.py",
@@ -224,7 +224,7 @@
     },
     {
       "path": "src/inbound_ai_acquisition/application/research.py",
-      "sha256": "7d28caabd9d364b90414907a19bd86e1a9d441fc559d9ad31a4c89f1c6bc05f0"
+      "sha256": "c9b7aae3e983b09881f61b6161afc8cfb66fcadb39b62d3f689500394e9a4ffa"
     },
     {
       "path": "src/inbound_ai_acquisition/application/services.py",
@@ -284,7 +284,7 @@
     },
     {
       "path": "src/inbound_ai_acquisition/exporters/workbook.py",
-      "sha256": "98ac5727b51eb7b46c9014e0ff91047a3c2d30316a0d36fa950c60a5f3dfa96f"
+      "sha256": "cce46bdee91b3d1c1d9241ef69f1f34d046ab0e3bc3033a558ca7bee9a6edaa6"
     },
     {
       "path": "src/inbound_ai_acquisition/storage/__init__.py",
@@ -333,6 +333,10 @@
     {
       "path": "tests/test_integrated_workflow.py",
       "sha256": "65c6f035cc36db10aeaa8db917b8d6051aac5d99f17b3d3454afb908cc229950"
+    },
+    {
+      "path": "tests/test_real_batch_regressions.py",
+      "sha256": "c0399bc037cb7f189f5464fe2632dc2800aa4fc2ed27385f008024cc83dd8fc2"
     },
     {
       "path": "tests/test_release_behavior.py",

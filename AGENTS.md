@@ -7,4 +7,4 @@
 - 事实/语气复核、产品绑定、证据时效、身份、触达依据、停发和审批快照不可绕过；不自动发送或报价。
 - 验证：`python -m unittest discover -s tests -p "test_*.py"`、`python -m ruff check src tests`、`python scripts/validate_skill.py .`。
 - 发布先暂存明确范围，重建audit build-lock，通过audit public-repo和audit release，再同步安装版、提交和推送原分支。
-- 1.2.1修复说明在CHANGELOG和docs/cli.md；真实新20家产品匹配与业务转化尚待验证。
+- 1.2.2修复说明在CHANGELOG和references/data-contract.md；真实20家已研究及导出，产品能力、采购需求和转化仍待核准，不能把来源回放解释为新搜索或真实外联。
