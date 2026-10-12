@@ -147,11 +147,14 @@ inbound-leads run create --workspace $LeadWorkspace --market AU,NZ --target 20 -
 inbound-leads research run --workspace $LeadWorkspace --run <run_id>
 inbound-leads research coverage --workspace $LeadWorkspace --run <run_id>
 inbound-leads research status --workspace $LeadWorkspace --run <run_id>
+inbound-leads research review-plan --workspace $LeadWorkspace --run <run_id> --output "$LeadWorkspace\exports\增量复核任务.md"
 inbound-leads export workbook --workspace $LeadWorkspace --run <run_id> --output "$LeadWorkspace\exports\first-batch.xlsx"
 inbound-leads research verify --workspace $LeadWorkspace --run <run_id> --scope companies --workbook "$LeadWorkspace\exports\first-batch.xlsx"
 ```
 
 `--scope companies` 检查研究名单；默认 `--scope outreach` 检查外联准备。**名单通过 ≠ 产品匹配已确认 ≠ 可以发送。**
+
+`research review-plan` 从现有 SQLite 生成只读的员工复核任务包，集中显示 Evidence/Claim 缺口、R0—R3 入口、重复候选、草稿门禁和失败来源恢复任务。它不会接受 Claim、解决缺口、批准草稿或执行发送。
 
 候选倍数、来源类别是防漏诊断，不是采购意向证明。公司数量不足、入口缺失或关键事实冲突要如实报告，不缩目标掩盖缺口。
 

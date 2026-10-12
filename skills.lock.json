@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "file_count": 92,
+  "file_count": 94,
   "files": [
     {
       "path": ".env.example",
@@ -104,7 +104,7 @@
     },
     {
       "path": "README.md",
-      "sha256": "2e178275c9b277fe51269cafd6ba26ad35b421f43b081814fa1f57dd1c273b2b"
+      "sha256": "2e02ede9f11c651833f7d0a14fd3b78bbafbae38b759b42d14d039a7194ddda4"
     },
     {
       "path": "references/api-mcp-boundaries.md",
@@ -231,12 +231,16 @@
       "sha256": "c9b7aae3e983b09881f61b6161afc8cfb66fcadb39b62d3f689500394e9a4ffa"
     },
     {
+      "path": "src/inbound_ai_acquisition/application/review_plan.py",
+      "sha256": "4a79762ca89e60823cf533b62758269554556080d6961d85e77813395913b2f9"
+    },
+    {
       "path": "src/inbound_ai_acquisition/application/review_workbook.py",
       "sha256": "37818aa93956e2390f7fbee23bab290366052c7db9f042e4f58d4f4d3fd46d35"
     },
     {
       "path": "src/inbound_ai_acquisition/application/services.py",
-      "sha256": "7cd6a1ddd9ccef65f1f842b88c6a2d8aa0929828b6934ae61108f2e924c220c0"
+      "sha256": "3400cb7594d53eeb863f4b81b3c4311af0e9d979f1dfb63b1c32cb49c0ff1bf4"
     },
     {
       "path": "src/inbound_ai_acquisition/audit/__init__.py",
@@ -252,7 +256,7 @@
     },
     {
       "path": "src/inbound_ai_acquisition/cli.py",
-      "sha256": "ca7c9429bbd6d9ca423692c35484e72c21964c3a32d5431224bbcb11a4bb17e4"
+      "sha256": "582e1de7bbfefc6bd6ac2a31d8a2886782d626bec553cb9f4293f8687371ac19"
     },
     {
       "path": "src/inbound_ai_acquisition/config.py",
@@ -353,6 +357,10 @@
     {
       "path": "tests/test_release_safety.py",
       "sha256": "cba723f3e6b9960b5b54faf6c45b3791de8944b93ce41c8f5a35f70ac472d728"
+    },
+    {
+      "path": "tests/test_review_plan.py",
+      "sha256": "6b04ec64bd3933311ed92b08ac63f446d6e8e2d76de554cf6dcbacb623a2065e"
     },
     {
       "path": "tests/test_review_workbook_conversion.py",
