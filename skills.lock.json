@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "file_count": 89,
+  "file_count": 94,
   "files": [
     {
       "path": ".env.example",
@@ -104,7 +104,7 @@
     },
     {
       "path": "README.md",
-      "sha256": "068b2f56768ec745d9fc32475ddab51fb1752e094b702550b7eea017d8cd95dc"
+      "sha256": "2e02ede9f11c651833f7d0a14fd3b78bbafbae38b759b42d14d039a7194ddda4"
     },
     {
       "path": "references/api-mcp-boundaries.md",
@@ -153,6 +153,10 @@
     {
       "path": "scripts/bootstrap.sh",
       "sha256": "097dfabb5e1dbd12d2941ad015499f739aa7d3a7f9f53e68a232aaf4a3da2590"
+    },
+    {
+      "path": "scripts/convert_review_workbook.py",
+      "sha256": "2f4830c18318692e5085c0cf82e0007c05daa50850b0e722f02eb611101480f2"
     },
     {
       "path": "scripts/replay_research.py",
@@ -227,8 +231,16 @@
       "sha256": "c9b7aae3e983b09881f61b6161afc8cfb66fcadb39b62d3f689500394e9a4ffa"
     },
     {
+      "path": "src/inbound_ai_acquisition/application/review_plan.py",
+      "sha256": "4a79762ca89e60823cf533b62758269554556080d6961d85e77813395913b2f9"
+    },
+    {
+      "path": "src/inbound_ai_acquisition/application/review_workbook.py",
+      "sha256": "37818aa93956e2390f7fbee23bab290366052c7db9f042e4f58d4f4d3fd46d35"
+    },
+    {
       "path": "src/inbound_ai_acquisition/application/services.py",
-      "sha256": "7cd6a1ddd9ccef65f1f842b88c6a2d8aa0929828b6934ae61108f2e924c220c0"
+      "sha256": "3400cb7594d53eeb863f4b81b3c4311af0e9d979f1dfb63b1c32cb49c0ff1bf4"
     },
     {
       "path": "src/inbound_ai_acquisition/audit/__init__.py",
@@ -244,7 +256,7 @@
     },
     {
       "path": "src/inbound_ai_acquisition/cli.py",
-      "sha256": "ca7c9429bbd6d9ca423692c35484e72c21964c3a32d5431224bbcb11a4bb17e4"
+      "sha256": "582e1de7bbfefc6bd6ac2a31d8a2886782d626bec553cb9f4293f8687371ac19"
     },
     {
       "path": "src/inbound_ai_acquisition/config.py",
@@ -345,6 +357,14 @@
     {
       "path": "tests/test_release_safety.py",
       "sha256": "cba723f3e6b9960b5b54faf6c45b3791de8944b93ce41c8f5a35f70ac472d728"
+    },
+    {
+      "path": "tests/test_review_plan.py",
+      "sha256": "6b04ec64bd3933311ed92b08ac63f446d6e8e2d76de554cf6dcbacb623a2065e"
+    },
+    {
+      "path": "tests/test_review_workbook_conversion.py",
+      "sha256": "22d5ae2e6e9f6a2585beddbe9beb91cb1ece5a246d93d2efd07d2c08c5caf712"
     },
     {
       "path": "tests/test_search_expansion.py",

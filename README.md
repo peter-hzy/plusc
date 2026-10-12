@@ -147,11 +147,14 @@ inbound-leads run create --workspace $LeadWorkspace --market AU,NZ --target 20 -
 inbound-leads research run --workspace $LeadWorkspace --run <run_id>
 inbound-leads research coverage --workspace $LeadWorkspace --run <run_id>
 inbound-leads research status --workspace $LeadWorkspace --run <run_id>
+inbound-leads research review-plan --workspace $LeadWorkspace --run <run_id> --output "$LeadWorkspace\exports\增量复核任务.md"
 inbound-leads export workbook --workspace $LeadWorkspace --run <run_id> --output "$LeadWorkspace\exports\first-batch.xlsx"
 inbound-leads research verify --workspace $LeadWorkspace --run <run_id> --scope companies --workbook "$LeadWorkspace\exports\first-batch.xlsx"
 ```
 
 `--scope companies` 检查研究名单；默认 `--scope outreach` 检查外联准备。**名单通过 ≠ 产品匹配已确认 ≠ 可以发送。**
+
+`research review-plan` 从现有 SQLite 生成只读的员工复核任务包，集中显示 Evidence/Claim 缺口、R0—R3 入口、重复候选、草稿门禁和失败来源恢复任务。它不会接受 Claim、解决缺口、批准草稿或执行发送。
 
 候选倍数、来源类别是防漏诊断，不是采购意向证明。公司数量不足、入口缺失或关键事实冲突要如实报告，不缩目标掩盖缺口。
 
@@ -176,6 +179,17 @@ inbound-leads research verify --workspace $LeadWorkspace --run <run_id> --scope 
 ImportGenius、Google Places、Serper 当前没有内置实现，不用“预留接口”冒充已接通。先证明业务价值，再按需接入；货物贸易记录不是入境游获客的默认依据。
 
 ## 当前验证边界
+
+### 接管七列审阅 Excel
+
+七列“客户结果”Excel 是审阅快照，不是数据库备份。需要接管同伴交付、且没有原 SQLite 时，可先转换为保守的旧版兼容 JSON：
+
+```powershell
+python scripts/convert_review_workbook.py <review.xlsx> <takeover.json> --run-id <run_id>
+inbound-leads import legacy --workspace <workspace> --file <takeover.json>
+```
+
+转换器只恢复公司、公开入口、待审草稿和阻塞缺口，不重建 Evidence、Claim、SourceRun、批准、回复或已发送状态。导入后必须重新打开来源做增量复核；不能把转换结果当作已批准客户资料或发送许可。
 
 已建立单元、流程、反向和发布检查，覆盖重复导入、事实审核、批次隔离、草稿审批、停发与导出。测试数量会随改动变化，以本次命令输出及上方 CI 为准，不用旧的绿色结果代替新版本验收。
 

@@ -145,9 +145,11 @@ def run_status(db: Database, run_id: str) -> dict[str, Any]:
             )[0]["n"]
         elif table in {"claims", "research_gaps"}:
             count = db.query(
-                f"SELECT COUNT(*) AS n FROM {table} t JOIN companies x ON x.company_id=t.entity_id "
-                "WHERE t.entity_type='company' AND x.run_id=?",
-                (run_id,),
+                f"SELECT COUNT(*) AS n FROM {table} t WHERE "
+                "(t.entity_type='company' AND t.entity_id IN (SELECT company_id FROM companies WHERE run_id=?)) OR "
+                "(t.entity_type='contact' AND t.entity_id IN "
+                "(SELECT c.contact_id FROM contacts c JOIN companies x ON x.company_id=c.company_id WHERE x.run_id=?))",
+                (run_id, run_id),
             )[0]["n"]
         else:
             count = db.query(

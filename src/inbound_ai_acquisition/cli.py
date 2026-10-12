@@ -17,6 +17,7 @@ from .adapters.registry import built_in_adapters
 from .application.discovery import discovery_coverage
 from .application.legacy_import import import_legacy_bundle
 from .application.research import research_status, run_research, verify_research_uat
+from .application.review_plan import write_review_plan
 from .application.services import (
     add_stop,
     approve_draft,
@@ -142,6 +143,10 @@ def build_parser() -> argparse.ArgumentParser:
     research_verify.add_argument("--run", required=True)
     research_verify.add_argument("--workbook")
     research_verify.add_argument("--scope", choices=("companies", "outreach"), default="outreach")
+    research_review_plan = research.add_parser("review-plan")
+    add_workspace(research_review_plan)
+    research_review_plan.add_argument("--run", required=True)
+    research_review_plan.add_argument("--output", required=True, help="只读增量复核任务包 Markdown 路径")
 
     imports = commands.add_parser("import").add_subparsers(dest="import_command", required=True)
     for name in ("companies", "contacts", "evidence", "legacy", "review"):
@@ -576,6 +581,8 @@ def dispatch(args: argparse.Namespace) -> Any:
                 Path(args.workbook).resolve() if args.workbook else None,
                 scope=args.scope,
             )
+        if args.research_command == "review-plan":
+            return write_review_plan(db, args.run, Path(args.output))
         return run_research(
             db,
             args.run,
