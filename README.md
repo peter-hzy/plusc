@@ -177,6 +177,17 @@ ImportGenius、Google Places、Serper 当前没有内置实现，不用“预留
 
 ## 当前验证边界
 
+### 接管七列审阅 Excel
+
+七列“客户结果”Excel 是审阅快照，不是数据库备份。需要接管同伴交付、且没有原 SQLite 时，可先转换为保守的旧版兼容 JSON：
+
+```powershell
+python scripts/convert_review_workbook.py <review.xlsx> <takeover.json> --run-id <run_id>
+inbound-leads import legacy --workspace <workspace> --file <takeover.json>
+```
+
+转换器只恢复公司、公开入口、待审草稿和阻塞缺口，不重建 Evidence、Claim、SourceRun、批准、回复或已发送状态。导入后必须重新打开来源做增量复核；不能把转换结果当作已批准客户资料或发送许可。
+
 已建立单元、流程、反向和发布检查，覆盖重复导入、事实审核、批次隔离、草稿审批、停发与导出。测试数量会随改动变化，以本次命令输出及上方 CI 为准，不用旧的绿色结果代替新版本验收。
 
 ```powershell
